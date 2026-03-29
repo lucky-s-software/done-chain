@@ -11,6 +11,7 @@ import {
   deriveTopicKey,
 } from "@/lib/ai/clarification";
 import { getProfile } from "@/lib/engine/profile";
+import { runPromptImprover } from "@/lib/ai/promptImprover";
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,8 +29,17 @@ export async function POST(req: NextRequest) {
     // 2. Build attention window + recent conversation history
     const recentConversationHistory = await getRecentConversationHistory(prisma, 12);
     const profile = await getProfile();
+
+    // 2a. Run prompt improver (knowledge selection + intent enrichment)
+    const { knowledgeContent, enrichedContext } = await runPromptImprover(content, profile).catch(
+      () => ({ knowledgeContent: "", enrichedContext: "" })
+    );
+
+    const knowledgeContext = [enrichedContext, knowledgeContent].filter(Boolean).join("\n\n") || undefined;
+
     const attentionContext = await buildAttentionWindow(prisma, recentConversationHistory, {
       profile: profile || undefined,
+      knowledgeContext,
     });
 
     // 3. Manage clarification lifecycle

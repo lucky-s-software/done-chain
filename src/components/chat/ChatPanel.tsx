@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { MessageBubble } from "./MessageBubble";
+import { DayDivider } from "./DayDivider";
 import { ChatInput } from "./ChatInput";
 import { QuickActions } from "./QuickActions";
 import type { Message, ActionCard } from "@/types";
@@ -15,6 +16,8 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [memoriesBanner, setMemoriesBanner] = useState<number>(0);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [deletingUpTo, setDeletingUpTo] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Load history on mount
@@ -136,6 +139,34 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
     );
   }, [onDataChange]);
 
+  const handleMessageClick = useCallback((messageId: string) => {
+    setSelectedMessageId((prev) => (prev === messageId ? null : messageId));
+  }, []);
+
+  const selectedIndex = selectedMessageId ? messages.findIndex((m) => m.id === selectedMessageId) : -1;
+  const deleteCount = selectedIndex >= 0 ? selectedIndex + 1 : 0;
+
+  const handleBulkDelete = useCallback(async () => {
+    if (!selectedMessageId) return;
+    setDeletingUpTo(true);
+    try {
+      await fetch("/api/messages/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ upToMessageId: selectedMessageId }),
+      });
+      const histRes = await fetch("/api/messages?limit=50");
+      const histData = await histRes.json();
+      if (histData.messages) setMessages(histData.messages);
+      setSelectedMessageId(null);
+      onDataChange?.();
+    } catch (err) {
+      console.error("[bulk delete]", err);
+    } finally {
+      setDeletingUpTo(false);
+    }
+  }, [selectedMessageId, onDataChange]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Memory banner */}
@@ -143,6 +174,25 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
         <div className="px-4 py-2 bg-[var(--info)]/10 border-b border-[var(--info)]/30 text-xs font-mono text-[var(--info)] flex items-center justify-between">
           <span>🧠 {memoriesBanner} {memoriesBanner === 1 ? "memory" : "memories"} created</span>
           <button onClick={() => setMemoriesBanner(0)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">✕</button>
+        </div>
+      )}
+
+      {/* Bulk delete confirmation bar */}
+      {selectedMessageId && (
+        <div className="px-4 py-2 bg-[var(--bg-tertiary)] border-b border-[var(--border)] text-xs font-mono flex items-center justify-between gap-3">
+          <span className="text-[var(--text-muted)]">Delete {deleteCount} message{deleteCount !== 1 ? "s" : ""} up to this point?</span>
+          <div className="flex gap-2">
+            <button
+              onClick={handleBulkDelete}
+              disabled={deletingUpTo}
+              className="text-red-500 hover:text-red-400 disabled:opacity-50"
+            >
+              {deletingUpTo ? "Deleting…" : "Confirm"}
+            </button>
+            <button onClick={() => setSelectedMessageId(null)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -156,13 +206,28 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
           </div>
         )}
 
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            onCardAction={handleCardAction}
-          />
-        ))}
+        {messages.map((msg, idx) => {
+          const prevMsg = messages[idx - 1];
+          const msgDate = new Date(msg.createdAt);
+          const prevDate = prevMsg ? new Date(prevMsg.createdAt) : null;
+          const showDivider =
+            !prevDate ||
+            prevDate.getFullYear() !== msgDate.getFullYear() ||
+            prevDate.getMonth() !== msgDate.getMonth() ||
+            prevDate.getDate() !== msgDate.getDate();
+
+          return (
+            <div key={msg.id}>
+              {showDivider && <DayDivider date={msgDate} />}
+              <MessageBubble
+                message={msg}
+                selected={msg.id === selectedMessageId}
+                onCardAction={handleCardAction}
+                onClick={handleMessageClick}
+              />
+            </div>
+          );
+        })}
 
         {loading && (
           <div className="flex items-start mb-4">

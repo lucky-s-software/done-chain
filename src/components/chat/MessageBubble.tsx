@@ -5,18 +5,25 @@ import type { Message, ActionCard } from "@/types";
 
 interface MessageBubbleProps {
   message: Message;
+  selected?: boolean;
   onCardAction: (
     cardId: string,
     action: "approve" | "reject" | "dismiss",
     edits?: { title?: string; dueAt?: string; tags?: string[] }
   ) => Promise<void>;
+  onClick?: (messageId: string) => void;
 }
 
-export function MessageBubble({ message, onCardAction }: MessageBubbleProps) {
+export function MessageBubble({ message, selected, onCardAction, onClick }: MessageBubbleProps) {
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} mb-4`}>
+    <div
+      className={`flex flex-col ${isUser ? "items-end" : "items-start"} mb-4 rounded transition-colors ${
+        selected ? "bg-[var(--accent)]/8" : "cursor-pointer hover:bg-[var(--bg-secondary)]/40"
+      }`}
+      onClick={() => onClick?.(message.id)}
+    >
       {/* Role label */}
       <span className="text-[10px] font-mono text-[var(--text-muted)] mb-1 px-1 tracking-widest uppercase">
         {isUser ? "you" : "donechain"}

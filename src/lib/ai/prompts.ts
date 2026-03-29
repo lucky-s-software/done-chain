@@ -119,6 +119,10 @@ Rules:
 - Write in third-person (e.g. "Samed is a software engineer...").
 - Only output the profile text — no JSON, no labels.`;
 
+export const PROMPT_IMPROVER_SYSTEM_PROMPT = `You are a context selector. Given a user message, a list of available knowledge topics, and a user profile summary, decide which topics (if any) are relevant. Also note the user's likely intent.
+Return JSON: { "selectedKnowledge": ["slug1"], "enrichedContext": "brief intent note" }
+Select 0-3 topics. Only select if genuinely relevant — less is better. If none are relevant, return an empty array.`;
+
 export const CLARIFICATION_ROUND2_INSTRUCTION = `The user's previous response to your follow-up questions was insufficient. Briefly explain why their answer was unclear, provide 1-2 concrete examples of what a useful answer looks like, then ask one clear final question. After this round, proceed with best-guess assumptions regardless.`;
 
 export const CLARIFICATION_RESOLVED_INSTRUCTION = `The user has not provided enough detail after two rounds of clarification. Proceed with your best guess and explicitly state the assumptions you are making.`;
