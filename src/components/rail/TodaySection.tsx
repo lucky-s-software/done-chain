@@ -13,9 +13,19 @@ export function TodaySection({ onTaskUpdate }: TodaySectionProps) {
 
   const load = async () => {
     try {
-      const res = await fetch("/api/tasks?status=active&due=today");
+      const res = await fetch("/api/tasks?status=active");
       const data = await res.json();
-      setTasks(data.tasks ?? []);
+
+      const now = new Date();
+      const todayEnd = new Date(now);
+      todayEnd.setHours(23, 59, 59, 999);
+
+      const todayTasks = (data.tasks ?? []).filter((t: Task) => {
+        if (!t.dueAt) return true;
+        const due = new Date(t.dueAt);
+        return due <= todayEnd;
+      });
+      setTasks(todayTasks);
     } catch {
       // silent
     } finally {

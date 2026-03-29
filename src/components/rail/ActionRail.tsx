@@ -28,7 +28,7 @@ export function ActionRail({ refreshPulse }: ActionRailProps) {
       {/* Main task lists */}
       <div className="flex-1 flex flex-col gap-6 pb-8">
         <TodaySection key={`today-${pulse}-${refreshPulse}`} onTaskUpdate={forceUpdate} />
-        <UpcomingSection key={`upcoming-${pulse}-${refreshPulse}`} />
+        <UpcomingSection key={`upcoming-${pulse}-${refreshPulse}`} onTaskUpdate={forceUpdate} />
       </div>
 
       {/* Footer minimal branding */}
