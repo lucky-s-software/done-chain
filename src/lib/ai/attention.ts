@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { parseStoredTags } from "@/lib/tags";
 
 interface AttentionMessage {
   role: "user" | "assistant" | "system";
@@ -18,7 +19,7 @@ interface AttentionInput {
 }
 
 function parseTags(tags: string[] | string): string[] {
-  return typeof tags === "string" ? JSON.parse(tags) : tags;
+  return parseStoredTags(tags);
 }
 
 function truncateContent(content: string, maxLength = 220): string {

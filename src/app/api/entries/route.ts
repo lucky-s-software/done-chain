@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { parseStoredTags } from "@/lib/tags";
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
       include: { person: true, project: true },
     });
 
-    const parsedEntries = entries.map(e => ({ ...e, tags: typeof e.tags === "string" ? JSON.parse(e.tags) : e.tags }));
+    const parsedEntries = entries.map((entry) => ({ ...entry, tags: parseStoredTags(entry.tags) }));
     return NextResponse.json({ entries: parsedEntries });
   } catch (err) {
     console.error("[entries] error:", err);

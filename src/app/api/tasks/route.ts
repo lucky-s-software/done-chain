@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { hasTaskField } from "@/lib/taskFields";
+import { parseStoredTags } from "@/lib/tags";
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,6 +21,10 @@ export async function GET(req: NextRequest) {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    const taskOrderBy = hasTaskField("executionStartAt")
+      ? [{ executionStartAt: "asc" as const }, { dueAt: "asc" as const }]
+      : [{ dueAt: "asc" as const }];
+
     const tasks = await prisma.task.findMany({
       where: {
         ...(statusFilters.length === 1 ? { status: statusFilters[0] } : {}),
@@ -27,11 +33,11 @@ export async function GET(req: NextRequest) {
           ? { OR: [{ dueAt: { gte: today, lt: tomorrow } }, { dueAt: null }] }
           : {}),
       },
-      orderBy: [{ executionStartAt: "asc" }, { dueAt: "asc" }],
+      orderBy: taskOrderBy,
       include: { person: true, project: true },
     });
 
-    const parsedTasks = tasks.map(t => ({ ...t, tags: typeof t.tags === "string" ? JSON.parse(t.tags) : t.tags }));
+    const parsedTasks = tasks.map((task) => ({ ...task, tags: parseStoredTags(task.tags) }));
     return NextResponse.json({ tasks: parsedTasks });
   } catch (err) {
     console.error("[tasks] error:", err);
@@ -78,13 +84,13 @@ export async function PATCH(req: NextRequest) {
       updateData.dueAt = normalizedEdits.dueAt ? new Date(normalizedEdits.dueAt) : null;
     }
 
-    if (normalizedEdits.executionStartAt !== undefined) {
+    if (normalizedEdits.executionStartAt !== undefined && hasTaskField("executionStartAt")) {
       updateData.executionStartAt = normalizedEdits.executionStartAt
         ? new Date(normalizedEdits.executionStartAt)
         : null;
     }
 
-    if (normalizedEdits.estimatedMinutes !== undefined) {
+    if (normalizedEdits.estimatedMinutes !== undefined && hasTaskField("estimatedMinutes")) {
       updateData.estimatedMinutes =
         typeof normalizedEdits.estimatedMinutes === "number" && normalizedEdits.estimatedMinutes > 0
           ? Math.max(1, Math.round(normalizedEdits.estimatedMinutes))

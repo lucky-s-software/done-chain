@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { hasTaskField } from "@/lib/taskFields";
 import { normalizeTags } from "@/lib/tags";
 
 export async function PATCH(
@@ -47,14 +48,14 @@ export async function PATCH(
             ...(edits?.dueAt !== undefined
               ? { dueAt: edits.dueAt ? new Date(edits.dueAt) : null }
               : {}),
-            ...(edits?.executionStartAt !== undefined
+            ...(edits?.executionStartAt !== undefined && hasTaskField("executionStartAt")
               ? {
                   executionStartAt: edits.executionStartAt
                     ? new Date(edits.executionStartAt)
                     : null,
                 }
               : {}),
-            ...(edits?.estimatedMinutes !== undefined
+            ...(edits?.estimatedMinutes !== undefined && hasTaskField("estimatedMinutes")
               ? {
                   estimatedMinutes:
                     typeof edits.estimatedMinutes === "number" && edits.estimatedMinutes > 0

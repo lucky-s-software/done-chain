@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import type { NormalizedExtraction } from "@/types";
+import { hasTaskField } from "@/lib/taskFields";
+import { parseStoredTags } from "@/lib/tags";
 
 const PROJECT_SUFFIXES = [
   "app",
@@ -275,7 +277,7 @@ export async function persistExtraction(
           tags: JSON.stringify(
             Array.from(
               new Set([
-                ...(JSON.parse(typeof similar.tags === "string" ? similar.tags : "[]") as string[]),
+                ...parseStoredTags(similar.tags),
                 ...context.tags,
               ])
             )
@@ -312,8 +314,12 @@ export async function persistExtraction(
       dueAt: extraction.dueAt,
       dueType: extraction.dueType,
       reminderAt: extraction.reminderAt,
-      estimatedMinutes: extraction.estimatedMinutes,
-      executionStartAt: extraction.executionStartAt,
+      ...(hasTaskField("estimatedMinutes")
+        ? { estimatedMinutes: extraction.estimatedMinutes }
+        : {}),
+      ...(hasTaskField("executionStartAt")
+        ? { executionStartAt: extraction.executionStartAt }
+        : {}),
       tags: JSON.stringify(context.tags),
       personId: context.personId,
       projectId: context.projectId,

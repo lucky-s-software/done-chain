@@ -3,6 +3,7 @@ import { persistSummaryEntry } from "@/lib/ai/extractions";
 import { chat } from "@/lib/deepseek";
 import { SUMMARY_SYSTEM_PROMPT, SUMMARY_USER_PROMPT } from "@/lib/ai/prompts";
 import { updateProfileFromConversation } from "@/lib/engine/profile";
+import { parseStoredTags } from "@/lib/tags";
 
 export async function runSummarizationJob(): Promise<{
   summary: {
@@ -112,7 +113,7 @@ export async function runSummarizationJob(): Promise<{
   return {
     summary: {
       ...savedSummary,
-      tags: typeof savedSummary.tags === "string" ? JSON.parse(savedSummary.tags) : savedSummary.tags,
+      tags: parseStoredTags(savedSummary.tags),
     },
     entriesCreated,
     messagesProcessed: messages.length,

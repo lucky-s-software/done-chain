@@ -27,3 +27,22 @@ export function normalizeTags(tags: string[], limit = MAX_TAGS): string[] {
 
   return normalized;
 }
+
+export function parseStoredTags(tags: unknown): string[] {
+  if (Array.isArray(tags)) {
+    return tags.filter((tag): tag is string => typeof tag === "string");
+  }
+
+  if (typeof tags !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed)
+      ? parsed.filter((tag): tag is string => typeof tag === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
