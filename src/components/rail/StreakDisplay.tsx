@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getStreakInfo } from "@/lib/engine/closure";
+
 
 interface StreakData {
   chainDay: number;

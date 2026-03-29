@@ -77,7 +77,7 @@ export async function runSummarizationJob(): Promise<{
       summary: parsed.summary || "Session summarized.",
       periodStart,
       periodEnd,
-      tags: parsed.tags || [],
+      tags: JSON.stringify(parsed.tags || []),
     },
   });
 
@@ -87,7 +87,7 @@ export async function runSummarizationJob(): Promise<{
     data: entries.map((e) => ({
       content: e.content,
       source: "summary" as const,
-      tags: e.tags || [],
+      tags: JSON.stringify(e.tags || []),
     })),
   });
 
@@ -103,7 +103,10 @@ export async function runSummarizationJob(): Promise<{
   });
 
   return {
-    summary: savedSummary,
+    summary: {
+      ...savedSummary,
+      tags: typeof savedSummary.tags === "string" ? JSON.parse(savedSummary.tags) : savedSummary.tags,
+    },
     entriesCreated: entries.length,
     messagesProcessed: messages.length,
   };

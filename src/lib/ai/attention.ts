@@ -1,9 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 
 interface AttentionInput {
-  recentEntries: { content: string; tags: string[]; pinned: boolean; createdAt: Date }[];
-  pinnedEntries: { content: string; tags: string[] }[];
-  activeTasks: { title: string; dueAt: Date | null; dueType: string | null; tags: string[] }[];
+  recentEntries: { content: string; tags: string[] | string; pinned: boolean; createdAt: Date }[];
+  pinnedEntries: { content: string; tags: string[] | string }[];
+  activeTasks: { title: string; status?: string; dueAt: Date | null; dueType: string | null; tags: string[] | string }[];
   recentSummaries: { summary: string; periodEnd: Date }[];
   currentDate: Date;
 }
@@ -16,7 +16,7 @@ function formatAttentionContext(input: AttentionInput): string {
   if (input.pinnedEntries.length > 0) {
     parts.push(
       `## Pinned Memories\n${input.pinnedEntries
-        .map((e) => `- ${e.content} [${e.tags.join(", ")}]`)
+        .map((e) => `- ${e.content} [${(typeof e.tags === "string" ? JSON.parse(e.tags) : e.tags).join(", ")}]`)
         .join("\n")}`
     );
   }
@@ -26,7 +26,7 @@ function formatAttentionContext(input: AttentionInput): string {
       `## Active Tasks\n${input.activeTasks
         .map(
           (t) =>
-            `- [${t.status ?? "active"}] ${t.title}${t.dueAt ? ` (due: ${t.dueAt.toISOString().split("T")[0]})` : ""} [${t.tags.join(", ")}]`
+            `- [${t.status ?? "active"}] ${t.title}${t.dueAt ? ` (due: ${t.dueAt.toISOString().split("T")[0]})` : ""} [${(typeof t.tags === "string" ? JSON.parse(t.tags) : t.tags).join(", ")}]`
         )
         .join("\n")}`
     );
@@ -43,7 +43,7 @@ function formatAttentionContext(input: AttentionInput): string {
   if (input.recentEntries.length > 0) {
     parts.push(
       `## Recent Memories (last 14 days)\n${input.recentEntries
-        .map((e) => `- ${e.content} [${e.tags.join(", ")}]`)
+        .map((e) => `- ${e.content} [${(typeof e.tags === "string" ? JSON.parse(e.tags) : e.tags).join(", ")}]`)
         .join("\n")}`
     );
   }

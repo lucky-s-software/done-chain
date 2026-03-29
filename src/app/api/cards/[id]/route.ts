@@ -37,7 +37,7 @@ export async function PATCH(
             approvalState: "approved",
             ...(edits?.title ? { title: edits.title } : {}),
             ...(edits?.dueAt ? { dueAt: new Date(edits.dueAt) } : {}),
-            ...(edits?.tags ? { tags: edits.tags } : {}),
+            ...(edits?.tags ? { tags: JSON.stringify(edits.tags) } : {}),
           },
         });
 

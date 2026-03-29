@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
           data: {
             content: ext.content,
             source: "ai_extracted",
-            tags: ext.tags,
+            tags: JSON.stringify(ext.tags),
             sourceMessageId: userMessage.id,
             personId,
             reviewed: false,
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
             payload: {
               entryId: entry.id,
               content: ext.content,
-              tags: ext.tags,
+              tags: JSON.stringify(ext.tags),
               confidence: ext.confidence,
             },
             status: "pending",
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
           data: {
             content: ext.content,
             source: "ai_extracted",
-            tags: ext.tags,
+            tags: JSON.stringify(ext.tags),
             sourceMessageId: userMessage.id,
             personId,
           },
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
             dueAt: ext.dueAt,
             dueType: ext.dueType,
             reminderAt: ext.reminderAt,
-            tags: ext.tags,
+            tags: JSON.stringify(ext.tags),
             sourceEntryId: entry.id,
             personId,
           },

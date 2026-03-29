@@ -23,7 +23,8 @@ export async function GET(req: NextRequest) {
       include: { person: true, project: true },
     });
 
-    return NextResponse.json({ tasks });
+    const parsedTasks = tasks.map(t => ({ ...t, tags: typeof t.tags === "string" ? JSON.parse(t.tags) : t.tags }));
+    return NextResponse.json({ tasks: parsedTasks });
   } catch (err) {
     console.error("[tasks] error:", err);
     return NextResponse.json({ error: "Failed to fetch tasks" }, { status: 500 });

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -32,7 +32,7 @@ model ConversationSummary {
   summary     String
   periodStart DateTime
   periodEnd   DateTime
-  tags        String[]
+  tags        String   @default("[]")
   createdAt   DateTime @default(now())
 }
 
@@ -46,7 +46,7 @@ model Entry {
   source          EntrySource
   sourceMessageId String?
   sourceMessage   Message?    @relation("SourceMessage", fields: [sourceMessageId], references: [id])
-  tags            String[]
+  tags            String      @default("[]")
   projectId       String?
   project         Project?    @relation(fields: [projectId], references: [id])
   personId        String?
@@ -85,7 +85,7 @@ enum ProjectStatus {
 
 model Person {
   id        String   @id @default(cuid())
-  name      String
+  name      String   @unique
   context   String?
   entries   Entry[]
   tasks     Task[]
@@ -106,7 +106,7 @@ model Task {
   reminderAt      DateTime?
   sourceEntryId   String?
   sourceEntry     Entry?        @relation("SourceEntry", fields: [sourceEntryId], references: [id])
-  tags            String[]
+  tags            String        @default("[]")
   projectId       String?
   project         Project?      @relation(fields: [projectId], references: [id])
   personId        String?
@@ -170,7 +170,7 @@ enum CardStatus {
 
 model DailyClosure {
   id              String        @id @default(cuid())
-  date            DateTime      @unique @db.Date
+  date            DateTime      @unique
   dueCount        Int           @default(0)
   completedCount  Int           @default(0)
   snoozedCount    Int           @default(0)
