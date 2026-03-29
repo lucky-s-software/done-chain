@@ -1,0 +1,74 @@
+# ===========================
+# SECRETS & LOCAL CONFIG
+# ===========================
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ===========================
+# PRE-BUILD ASSETS (private)
+# ===========================
+.pre/
+
+# ===========================
+# DEPENDENCIES
+# ===========================
+node_modules/
+.pnp
+.pnp.js
+
+# ===========================
+# NEXT.JS
+# ===========================
+.next/
+out/
+build/
+dist/
+
+# ===========================
+# PRISMA
+# ===========================
+# Keep schema.prisma, but ignore generated client if needed
+# prisma/migrations are committed intentionally
+
+# ===========================
+# TESTING
+# ===========================
+coverage/
+*.lcov
+.nyc_output/
+
+# ===========================
+# TYPESCRIPT
+# ===========================
+*.tsbuildinfo
+next-env.d.ts
+
+# ===========================
+# LOGS
+# ===========================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# ===========================
+# EDITOR & OS
+# ===========================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+
+# ===========================
+# MISC
+# ===========================
+.vercel
+.turbo
