@@ -13,6 +13,8 @@ interface AttentionInput {
   recentSummaries: { summary: string; periodEnd: Date }[];
   recentMessages: AttentionMessage[];
   currentDate: Date;
+  profile?: string;
+  knowledgeContext?: string;
 }
 
 function parseTags(tags: string[] | string): string[] {
@@ -30,6 +32,10 @@ function truncateContent(content: string, maxLength = 220): string {
 
 function formatAttentionContext(input: AttentionInput): string {
   const parts: string[] = [];
+
+  if (input.profile) {
+    parts.push(`## User Profile\n${input.profile.slice(0, 500)}`);
+  }
 
   parts.push(`## Current Date\n${input.currentDate.toISOString().split("T")[0]}`);
 
@@ -71,9 +77,13 @@ function formatAttentionContext(input: AttentionInput): string {
   if (input.recentEntries.length > 0) {
     parts.push(
       `## Recent Memories (last 14 days)\n${input.recentEntries
-        .map((e) => `- ${e.content} [${parseTags(e.tags).join(", ")}]`)
+        .map((e) => `- ${truncateContent(e.content, 150)} [${parseTags(e.tags).join(", ")}]`)
         .join("\n")}`
     );
+  }
+
+  if (input.knowledgeContext) {
+    parts.push(`## Knowledge Context\n${input.knowledgeContext}`);
   }
 
   return parts.join("\n\n");
@@ -98,10 +108,12 @@ export async function getRecentConversationHistory(
 
 export async function buildAttentionWindow(
   prisma: PrismaClient,
-  recentMessages?: AttentionMessage[]
+  recentMessages?: AttentionMessage[],
+  options?: { profile?: string; knowledgeContext?: string }
 ): Promise<string> {
   const now = new Date();
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   const [recentEntries, pinnedEntries, activeTasks, recentSummaries, latestConversation] = await Promise.all([
     prisma.entry.findMany({
@@ -114,13 +126,16 @@ export async function buildAttentionWindow(
       take: 10,
     }),
     prisma.task.findMany({
-      where: { status: "active" },
+      where: {
+        status: "active",
+        OR: [{ dueAt: null }, { dueAt: { lte: sevenDaysFromNow } }],
+      },
       orderBy: { dueAt: "asc" },
       take: 15,
     }),
     prisma.conversationSummary.findMany({
       orderBy: { periodEnd: "desc" },
-      take: 3,
+      take: 2,
     }),
     recentMessages ? Promise.resolve(recentMessages) : getRecentConversationHistory(prisma),
   ]);
@@ -132,5 +147,7 @@ export async function buildAttentionWindow(
     recentSummaries,
     recentMessages: latestConversation,
     currentDate: now,
+    profile: options?.profile,
+    knowledgeContext: options?.knowledgeContext,
   });
 }

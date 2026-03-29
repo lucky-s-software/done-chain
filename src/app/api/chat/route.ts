@@ -3,6 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { buildAttentionWindow, getRecentConversationHistory } from "@/lib/ai/attention";
 import { buildNormalizedTags, persistExtraction } from "@/lib/ai/extractions";
 import { parseUserMessage } from "@/lib/ai/parser";
+import {
+  getClarificationState,
+  startClarification,
+  advanceClarification,
+  resolveClarification,
+  deriveTopicKey,
+} from "@/lib/ai/clarification";
+import { getProfile } from "@/lib/engine/profile";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +27,14 @@ export async function POST(req: NextRequest) {
 
     // 2. Build attention window + recent conversation history
     const recentConversationHistory = await getRecentConversationHistory(prisma, 12);
-    const attentionContext = await buildAttentionWindow(prisma, recentConversationHistory);
+    const profile = await getProfile();
+    const attentionContext = await buildAttentionWindow(prisma, recentConversationHistory, {
+      profile: profile || undefined,
+    });
+
+    // 3. Manage clarification lifecycle
+    const topicKey = deriveTopicKey(content);
+    const clarificationState = getClarificationState(topicKey);
 
     // 3. Parse with DeepSeek
     const { reply, extractions, followUpQuestions, suggestedActions } = await parseUserMessage(
@@ -28,8 +43,22 @@ export async function POST(req: NextRequest) {
       recentConversationHistory.map(({ role, content: messageContent }) => ({
         role,
         content: messageContent,
-      }))
+      })),
+      clarificationState !== "none" ? topicKey : undefined
     );
+
+    // Update clarification state based on follow-up questions in response
+    if (followUpQuestions.length > 0) {
+      if (clarificationState === "none") {
+        startClarification(topicKey, content, followUpQuestions);
+      } else if (clarificationState === "round_1") {
+        advanceClarification(topicKey, followUpQuestions);
+      } else if (clarificationState === "round_2") {
+        resolveClarification(topicKey);
+      }
+    } else if (clarificationState !== "none") {
+      resolveClarification(topicKey);
+    }
 
     // 4. Save assistant message
     const assistantMessage = await prisma.message.create({

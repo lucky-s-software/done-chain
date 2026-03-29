@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { persistSummaryEntry } from "@/lib/ai/extractions";
 import { chat } from "@/lib/deepseek";
 import { SUMMARY_SYSTEM_PROMPT, SUMMARY_USER_PROMPT } from "@/lib/ai/prompts";
+import { updateProfileFromConversation } from "@/lib/engine/profile";
 
 export async function runSummarizationJob(): Promise<{
   summary: {
@@ -97,6 +98,11 @@ export async function runSummarizationJob(): Promise<{
     where: { id: { in: messages.map((m) => m.id) } },
     data: { expired: true },
   });
+
+  // Update profile with conversation context
+  await updateProfileFromConversation(messagesText).catch((err) =>
+    console.error("[summarizer] profile update failed:", err)
+  );
 
   // Log credits
   await prisma.creditLedger.create({

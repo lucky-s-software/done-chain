@@ -136,18 +136,6 @@ function extractHashtags(content: string): string[] {
   return Array.from(matches);
 }
 
-function extractFrequentNouns(content: string): string[] {
-  const tokens = transliterateToAscii(content)
-    .toLowerCase()
-    .match(/[a-z0-9][a-z0-9+.#/-]{2,}/g);
-
-  if (!tokens) {
-    return [];
-  }
-
-  return tokens.filter((token) => !TAG_STOPWORDS.has(token));
-}
-
 export function buildNormalizedTags(
   extraction: Pick<NormalizedExtraction, "title" | "content" | "tags">
 ): string[] {
@@ -155,21 +143,15 @@ export function buildNormalizedTags(
   const hashtagTags = extractHashtags(`${extraction.title} ${extraction.content}`)
     .map(toTagSlug)
     .filter(Boolean);
-  const entities = extractNamedEntities(`${extraction.title} ${extraction.content}`)
-    .map(toTagSlug)
-    .filter(Boolean);
   const knownNames = KNOWN_MULTI_WORD_NAMES
     .filter((name) =>
       toTagSlug(`${extraction.title} ${extraction.content}`).includes(toTagSlug(name))
     )
     .map(toTagSlug);
-  const frequentNouns = extractFrequentNouns(`${extraction.title} ${extraction.content}`)
-    .map(toTagSlug)
-    .filter(Boolean);
 
-  return Array.from(new Set([...baseTags, ...hashtagTags, ...entities, ...knownNames, ...frequentNouns]))
+  return Array.from(new Set([...baseTags, ...hashtagTags, ...knownNames]))
     .filter((tag) => tag.length >= 2 && !TAG_STOPWORDS.has(tag))
-    .slice(0, 8);
+    .slice(0, 5);
 }
 
 function detectProjectName(extraction: Pick<NormalizedExtraction, "title" | "content" | "tags">): string | null {

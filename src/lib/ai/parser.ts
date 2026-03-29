@@ -1,14 +1,26 @@
 import { chat } from "@/lib/deepseek";
 import { inferMemoryFromTasks } from "@/lib/ai/extractions";
-import { CHAT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
+import { CHAT_SYSTEM_PROMPT, CLARIFICATION_ROUND2_INSTRUCTION, CLARIFICATION_RESOLVED_INSTRUCTION } from "@/lib/ai/prompts";
+import { getClarificationContext } from "@/lib/ai/clarification";
 import type { ParseResult, RawExtraction, NormalizedExtraction, DueType } from "@/types";
 
 export async function parseUserMessage(
   userContent: string,
   attentionContext: string,
-  recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[] = []
+  recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[] = [],
+  clarificationTopicKey?: string
 ): Promise<ParseResult> {
-  const systemPrompt = CHAT_SYSTEM_PROMPT
+  let extraInstruction = "";
+  if (clarificationTopicKey) {
+    const ctx = getClarificationContext(clarificationTopicKey);
+    if (ctx?.state === "round_2") {
+      extraInstruction = `\n\n${CLARIFICATION_ROUND2_INSTRUCTION}`;
+    } else if (ctx?.state === "resolved") {
+      extraInstruction = `\n\n${CLARIFICATION_RESOLVED_INSTRUCTION}`;
+    }
+  }
+
+  const systemPrompt = (CHAT_SYSTEM_PROMPT + extraInstruction)
     .replace("{CURRENT_DATE}", new Date().toISOString().split("T")[0])
     .replace("{ATTENTION_CONTEXT}", attentionContext);
 
