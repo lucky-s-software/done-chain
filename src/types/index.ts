@@ -92,6 +92,7 @@ export interface NormalizedExtraction {
 export interface ParseResult {
   reply: string;
   extractions: NormalizedExtraction[];
+  followUpQuestions: string[];
   suggestedActions: string[];
 }
 
@@ -99,6 +100,8 @@ export interface ParseResult {
 export interface ChatResponse {
   message: Message;
   memoriesCreated: number;
+  followUpQuestions?: string[];
+  suggestedActions?: string[];
 }
 
 export interface CardActionResponse {
@@ -117,4 +120,5 @@ export interface SummaryResponse {
   };
   entriesCreated: number;
   messagesProcessed: number;
+  message?: Message;
 }

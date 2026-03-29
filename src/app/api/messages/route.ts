@@ -17,8 +17,13 @@ export async function GET(req: NextRequest) {
       include: { actionCards: true },
     });
 
-    const total = await prisma.message.count({ where: { expired: false } });
-    const hasMore = total > limit;
+    const total = await prisma.message.count({
+      where: {
+        expired: false,
+        ...(before ? { createdAt: { lt: new Date(before) } } : {}),
+      },
+    });
+    const hasMore = total > messages.length;
 
     return NextResponse.json({ messages, hasMore });
   } catch (err) {

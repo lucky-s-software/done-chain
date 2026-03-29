@@ -86,8 +86,31 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
   }, [onDataChange]);
 
   const handleQuickAction = useCallback((text: string) => {
+    if (text === "Summarize session") {
+      setLoading(true);
+      fetch("/api/summary", { method: "POST" })
+        .then((r) => r.json())
+        .then(async (data) => {
+          const histRes = await fetch("/api/messages?limit=50");
+          const histData = await histRes.json();
+          if (histData.messages) {
+            setMessages(histData.messages);
+          } else if (data.message) {
+            setMessages((prev) => [...prev, data.message]);
+          }
+          onDataChange?.();
+        })
+        .catch((err) => {
+          console.error("[summary quick action]", err);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+      return;
+    }
+
     handleSend(text);
-  }, [handleSend]);
+  }, [handleSend, onDataChange]);
 
   const handleCardAction = useCallback(async (
     cardId: string,
@@ -111,7 +134,7 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
         ),
       }))
     );
-  }, []);
+  }, [onDataChange]);
 
   return (
     <div className="flex flex-col h-full">

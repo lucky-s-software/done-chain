@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { buildAttentionWindow } from "@/lib/ai/attention";
+import { buildAttentionWindow, getRecentConversationHistory } from "@/lib/ai/attention";
+import { buildNormalizedTags, persistExtraction } from "@/lib/ai/extractions";
 import { parseUserMessage } from "@/lib/ai/parser";
 
 export async function POST(req: NextRequest) {
@@ -16,13 +17,18 @@ export async function POST(req: NextRequest) {
       data: { role: "user", content },
     });
 
-    // 2. Build attention window
-    const attentionContext = await buildAttentionWindow(prisma);
+    // 2. Build attention window + recent conversation history
+    const recentConversationHistory = await getRecentConversationHistory(prisma, 12);
+    const attentionContext = await buildAttentionWindow(prisma, recentConversationHistory);
 
     // 3. Parse with DeepSeek
-    const { reply, extractions, suggestedActions } = await parseUserMessage(
+    const { reply, extractions, followUpQuestions, suggestedActions } = await parseUserMessage(
       content,
-      attentionContext
+      attentionContext,
+      recentConversationHistory.map(({ role, content: messageContent }) => ({
+        role,
+        content: messageContent,
+      }))
     );
 
     // 4. Save assistant message
@@ -34,82 +40,39 @@ export async function POST(req: NextRequest) {
 
     // 5. Process extractions
     for (const ext of extractions) {
-      // Resolve or create Person
-      let personId: string | null = null;
-      if (ext.person) {
-        const person = await prisma.person.upsert({
-          where: { name: ext.person } as { name: string },
-          update: {},
-          create: { name: ext.person },
-        });
-        personId = person.id;
-      }
+      const normalizedTags = buildNormalizedTags(ext);
+      const persisted = await persistExtraction(prisma, ext, userMessage.id);
 
-      if (ext.type === "memory") {
-        // Create entry + proposed_memory card
-        const entry = await prisma.entry.create({
-          data: {
-            content: ext.content,
-            source: "ai_extracted",
-            tags: JSON.stringify(ext.tags),
-            sourceMessageId: userMessage.id,
-            personId,
-            reviewed: false,
-          },
-        });
-
+      if (ext.type === "memory" && persisted.entryId) {
         await prisma.actionCard.create({
           data: {
             messageId: assistantMessage.id,
             cardType: "proposed_memory",
             payload: {
-              entryId: entry.id,
+              entryId: persisted.entryId,
               content: ext.content,
-              tags: JSON.stringify(ext.tags),
+              tags: normalizedTags,
               confidence: ext.confidence,
             },
             status: "pending",
           },
         });
 
-        memoriesCreated++;
-      } else if (ext.type === "task" || ext.type === "reminder") {
-        // Create entry → task → card
-        const entry = await prisma.entry.create({
-          data: {
-            content: ext.content,
-            source: "ai_extracted",
-            tags: JSON.stringify(ext.tags),
-            sourceMessageId: userMessage.id,
-            personId,
-          },
-        });
-
-        const task = await prisma.task.create({
-          data: {
-            title: ext.title,
-            status: "proposed",
-            approvalState: "pending",
-            dueAt: ext.dueAt,
-            dueType: ext.dueType,
-            reminderAt: ext.reminderAt,
-            tags: JSON.stringify(ext.tags),
-            sourceEntryId: entry.id,
-            personId,
-          },
-        });
-
+        if (persisted.createdMemory) {
+          memoriesCreated++;
+        }
+      } else if ((ext.type === "task" || ext.type === "reminder") && persisted.taskId) {
         await prisma.actionCard.create({
           data: {
             messageId: assistantMessage.id,
             cardType: "proposed_task",
             payload: {
-              taskId: task.id,
+              taskId: persisted.taskId,
               title: ext.title,
               dueAt: ext.dueAt?.toISOString() ?? null,
               dueType: ext.dueType,
               reminderAt: ext.reminderAt?.toISOString() ?? null,
-              tags: ext.tags,
+              tags: normalizedTags,
               person: ext.person,
               confidence: ext.confidence,
             },
@@ -136,6 +99,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       message: fullMessage,
       memoriesCreated,
+      followUpQuestions,
       suggestedActions,
     });
   } catch (err) {

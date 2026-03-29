@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { persistSummaryEntry } from "@/lib/ai/extractions";
 import { chat } from "@/lib/deepseek";
 import { SUMMARY_SYSTEM_PROMPT, SUMMARY_USER_PROMPT } from "@/lib/ai/prompts";
 
@@ -83,13 +84,13 @@ export async function runSummarizationJob(): Promise<{
 
   // Save extracted entries
   const entries = parsed.extractedEntries || [];
-  await prisma.entry.createMany({
-    data: entries.map((e) => ({
-      content: e.content,
-      source: "summary" as const,
-      tags: JSON.stringify(e.tags || []),
-    })),
-  });
+  let entriesCreated = 0;
+  for (const entry of entries) {
+    const persisted = await persistSummaryEntry(prisma, entry);
+    if (persisted.createdMemory) {
+      entriesCreated++;
+    }
+  }
 
   // Mark messages as expired
   await prisma.message.updateMany({
@@ -107,7 +108,7 @@ export async function runSummarizationJob(): Promise<{
       ...savedSummary,
       tags: typeof savedSummary.tags === "string" ? JSON.parse(savedSummary.tags) : savedSummary.tags,
     },
-    entriesCreated: entries.length,
+    entriesCreated,
     messagesProcessed: messages.length,
   };
 }
