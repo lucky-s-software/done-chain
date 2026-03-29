@@ -21,6 +21,21 @@
     --info: #3b82f6;
   }
 
+  :root.light {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f4f4f5;
+    --bg-tertiary: #e4e4e7;
+    --border: #d4d4d8;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #71717a;
+    --accent: #d97706;
+    --accent-soft: rgba(217, 119, 6, 0.12);
+    --success: #16a34a;
+    --danger: #dc2626;
+    --info: #2563eb;
+  }
+
   body {
     background-color: var(--bg-primary);
     color: var(--text-primary);

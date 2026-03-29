@@ -76,7 +76,7 @@ export function TodaySection({ onTaskUpdate }: TodaySectionProps) {
                       {task.title}
                     </p>
                     {task.dueAt && (
-                      <p className={`text-xs font-mono mt-0.5 ${overdue ? "text-[var(--danger)]/70" : "text-[var(--text-muted)]"}`}>
+                      <p className={`text-xs font-mono mt-0.5 ${overdue ? "text-[var(--danger)]" : "text-[var(--text-muted)]"}`}>
                         {overdue ? "⚠ " : ""}
                         {new Date(task.dueAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </p>
@@ -85,7 +85,7 @@ export function TodaySection({ onTaskUpdate }: TodaySectionProps) {
                   <div className="flex gap-1 shrink-0">
                     <button
                       onClick={() => act(task.id, "complete")}
-                      className="w-6 h-6 flex items-center justify-center border border-[var(--success)]/40 text-[var(--success)] hover:bg-[var(--success)]/10 text-xs transition-colors"
+                      className="w-6 h-6 flex items-center justify-center border border-[var(--success)] text-[var(--success)] hover:bg-[var(--success)]/10 text-xs transition-colors"
                       title="Complete"
                     >✓</button>
                     <button

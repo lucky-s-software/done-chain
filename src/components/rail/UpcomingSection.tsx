@@ -87,7 +87,7 @@ export function UpcomingSection({ onTaskUpdate }: UpcomingSectionProps) {
                   <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => act(task.id, "complete")}
-                      className="w-6 h-6 flex items-center justify-center border border-[var(--success)]/40 text-[var(--success)] hover:bg-[var(--success)]/10 text-xs transition-colors"
+                      className="w-6 h-6 flex items-center justify-center border border-[var(--success)] text-[var(--success)] hover:bg-[var(--success)]/10 text-xs transition-colors"
                       title="Complete"
                     >✓</button>
                     <button
