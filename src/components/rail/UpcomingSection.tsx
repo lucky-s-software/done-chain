@@ -14,13 +14,11 @@ export function UpcomingSection() {
         const now = new Date();
         const todayEnd = new Date(now);
         todayEnd.setHours(23, 59, 59, 999);
-        const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-        // Tasks due in next 7 days but NOT today
+        // Tasks due after today
         const upcoming = (data.tasks ?? []).filter((t: Task) => {
           if (!t.dueAt) return false;
           const due = new Date(t.dueAt);
-          return due > todayEnd && due <= weekEnd;
+          return due > todayEnd;
         });
         setTasks(upcoming);
       })
@@ -44,7 +42,7 @@ export function UpcomingSection() {
       <div className="px-4 py-2 border-b border-[var(--border)]">
         <span className="font-mono text-xs tracking-widest text-[var(--text-muted)] uppercase">Upcoming</span>
       </div>
-      <div className="px-4 py-3 text-xs text-[var(--text-muted)] font-mono">— nothing in next 7 days</div>
+      <div className="px-4 py-3 text-xs text-[var(--text-muted)] font-mono">— nothing scheduled after today</div>
     </div>
   );
 

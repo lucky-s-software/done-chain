@@ -7,10 +7,10 @@ import { QuickActions } from "./QuickActions";
 import type { Message, ActionCard } from "@/types";
 
 interface ChatPanelProps {
-  onMemoriesCreated?: (count: number) => void;
+  onDataChange?: () => void;
 }
 
-export function ChatPanel({ onMemoriesCreated }: ChatPanelProps) {
+export function ChatPanel({ onDataChange }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -66,8 +66,11 @@ export function ChatPanel({ onMemoriesCreated }: ChatPanelProps) {
 
       if (data.memoriesCreated > 0) {
         setMemoriesBanner(data.memoriesCreated);
-        onMemoriesCreated?.(data.memoriesCreated);
         setTimeout(() => setMemoriesBanner(0), 5000);
+      }
+
+      if (data.memoriesCreated > 0 || data.message.actionCards?.length > 0) {
+        onDataChange?.();
       }
 
       // Reload to get actual saved user message with correct id
@@ -80,7 +83,7 @@ export function ChatPanel({ onMemoriesCreated }: ChatPanelProps) {
     } finally {
       setLoading(false);
     }
-  }, [onMemoriesCreated]);
+  }, [onDataChange]);
 
   const handleQuickAction = useCallback((text: string) => {
     handleSend(text);
@@ -97,6 +100,7 @@ export function ChatPanel({ onMemoriesCreated }: ChatPanelProps) {
       body: JSON.stringify({ action, edits }),
     });
     const data = await res.json();
+    onDataChange?.();
 
     // Update card status inline — no page reload
     setMessages((prev) =>

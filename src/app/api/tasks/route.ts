@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
       where: {
         ...(status ? { status: status as "proposed" | "active" | "done" | "cancelled" } : {}),
         ...(due === "today"
-          ? { dueAt: { gte: today, lt: tomorrow } }
+          ? { OR: [{ dueAt: { gte: today, lt: tomorrow } }, { dueAt: null }] }
           : {}),
       },
       orderBy: { dueAt: "asc" },
