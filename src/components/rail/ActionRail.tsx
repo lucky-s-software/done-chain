@@ -6,22 +6,18 @@ import { StreakDisplay } from "./StreakDisplay";
 import { CreditCounter } from "./CreditCounter";
 import { MemorySection } from "./MemorySection";
 import { TimelineSection } from "./TimelineSection";
-import {
-  detectUserTimeZone,
-  isValidTimeZone,
-  listSelectableTimeZones,
-  TIMEZONE_STORAGE_KEY,
-} from "@/lib/timezone";
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { listSelectableTimeZones } from "@/lib/timezone";
+import { useState, useCallback, useMemo } from "react";
 
 interface ActionRailProps {
   refreshPulse?: number;
+  timezone: string;
+  onTimezoneChange: (timezone: string) => void;
 }
 
-export function ActionRail({ refreshPulse }: ActionRailProps) {
+export function ActionRail({ refreshPulse, timezone, onTimezoneChange }: ActionRailProps) {
   const [pulse, setPulse] = useState(0);
   const [activeTab, setActiveTab] = useState<"tasks" | "memories" | "timeline">("tasks");
-  const [timezone, setTimezone] = useState("UTC");
 
   const forceUpdate = useCallback(() => {
     setPulse((p) => p + 1);
@@ -30,17 +26,6 @@ export function ActionRail({ refreshPulse }: ActionRailProps) {
   const toggleTheme = useCallback(() => {
     document.documentElement.classList.toggle("light");
   }, []);
-
-  useEffect(() => {
-    const detected = detectUserTimeZone();
-    const stored = window.localStorage.getItem(TIMEZONE_STORAGE_KEY);
-    setTimezone(stored && isValidTimeZone(stored) ? stored : detected);
-  }, []);
-
-  useEffect(() => {
-    if (!timezone) return;
-    window.localStorage.setItem(TIMEZONE_STORAGE_KEY, timezone);
-  }, [timezone]);
 
   const timezoneOptions = useMemo(() => listSelectableTimeZones(timezone), [timezone]);
 
@@ -72,8 +57,16 @@ export function ActionRail({ refreshPulse }: ActionRailProps) {
       <div className="flex-1 flex flex-col gap-6 pb-8">
         {activeTab === "tasks" ? (
           <>
-            <TodaySection key={`today-${pulse}-${refreshPulse}`} onTaskUpdate={forceUpdate} />
-            <UpcomingSection key={`upcoming-${pulse}-${refreshPulse}`} onTaskUpdate={forceUpdate} />
+            <TodaySection
+              key={`today-${pulse}-${refreshPulse}-${timezone}`}
+              onTaskUpdate={forceUpdate}
+              timezone={timezone}
+            />
+            <UpcomingSection
+              key={`upcoming-${pulse}-${refreshPulse}-${timezone}`}
+              onTaskUpdate={forceUpdate}
+              timezone={timezone}
+            />
           </>
         ) : activeTab === "timeline" ? (
           <TimelineSection
@@ -83,7 +76,7 @@ export function ActionRail({ refreshPulse }: ActionRailProps) {
             onTaskUpdate={forceUpdate}
           />
         ) : (
-          <MemorySection key={`memories-${pulse}-${refreshPulse}`} />
+          <MemorySection key={`memories-${pulse}-${refreshPulse}-${timezone}`} timezone={timezone} />
         )}
       </div>
 
@@ -96,7 +89,7 @@ export function ActionRail({ refreshPulse }: ActionRailProps) {
           <label className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)]">TZ</label>
           <select
             value={timezone}
-            onChange={(event) => setTimezone(event.target.value)}
+            onChange={(event) => onTimezoneChange(event.target.value)}
             className="w-36 bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1 focus:outline-none focus:border-[var(--accent)]"
             title="Timeline timezone"
           >

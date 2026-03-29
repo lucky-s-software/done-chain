@@ -1,34 +1,33 @@
+import { formatDateInTimeZone, getDateKeyInTimeZone, shiftDateKey } from "@/lib/timezone";
+
 interface DayDividerProps {
   date: Date;
+  timezone: string;
 }
 
-function formatDayLabel(date: Date): string {
+function formatDayLabel(date: Date, timezone: string): string {
   const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
+  const todayKey = getDateKeyInTimeZone(today, timezone);
+  const dateKey = getDateKeyInTimeZone(date, timezone);
+  if (dateKey === todayKey) return "Today";
+  if (dateKey === shiftDateKey(todayKey, -1)) return "Yesterday";
 
-  const sameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
+  const sameYear = dateKey.slice(0, 4) === todayKey.slice(0, 4);
 
-  if (sameDay(date, today)) return "Today";
-  if (sameDay(date, yesterday)) return "Yesterday";
-
-  return date.toLocaleDateString(undefined, {
+  return formatDateInTimeZone(date, timezone, {
     weekday: "short",
     month: "short",
     day: "numeric",
-    year: date.getFullYear() !== today.getFullYear() ? "numeric" : undefined,
+    year: sameYear ? undefined : "numeric",
   });
 }
 
-export function DayDivider({ date }: DayDividerProps) {
+export function DayDivider({ date, timezone }: DayDividerProps) {
   return (
     <div className="flex items-center gap-3 my-4">
       <hr className="flex-1 border-[var(--border)]" />
       <span className="font-mono text-[10px] text-[var(--text-muted)] shrink-0 tracking-widest uppercase">
-        {formatDayLabel(date)}
+        {formatDayLabel(date, timezone)}
       </span>
       <hr className="flex-1 border-[var(--border)]" />
     </div>

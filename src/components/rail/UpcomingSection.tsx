@@ -1,38 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Task } from "@/types";
+import { formatDateKeyLabel, getDateKeyInTimeZone } from "@/lib/timezone";
 
 interface UpcomingSectionProps {
   onTaskUpdate?: () => void;
+  timezone: string;
 }
 
-export function UpcomingSection({ onTaskUpdate }: UpcomingSectionProps) {
+export function UpcomingSection({ onTaskUpdate, timezone }: UpcomingSectionProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const r = await fetch("/api/tasks?status=active");
       const data = await r.json();
-        const now = new Date();
-        const todayEnd = new Date(now);
-        todayEnd.setHours(23, 59, 59, 999);
-        // Tasks due after today
-        const upcoming = (data.tasks ?? []).filter((t: Task) => {
-          if (!t.dueAt) return false;
-          const due = new Date(t.dueAt);
-          return due > todayEnd;
-        });
+      const todayKey = getDateKeyInTimeZone(new Date(), timezone);
+      // Tasks due after today in the selected timezone.
+      const upcoming = (data.tasks ?? []).filter((t: Task) => {
+        if (!t.dueAt) return false;
+        const due = new Date(t.dueAt);
+        return getDateKeyInTimeZone(due, timezone) > todayKey;
+      });
       setTasks(upcoming);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [timezone]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    setLoading(true);
+    load();
+  }, [load]);
 
   const act = async (id: string, action: "complete" | "snooze") => {
     await fetch("/api/tasks", {
@@ -46,9 +49,7 @@ export function UpcomingSection({ onTaskUpdate }: UpcomingSectionProps) {
 
   // Group by day
   const grouped = tasks.reduce<Record<string, Task[]>>((acc, task) => {
-    const key = new Date(task.dueAt!).toLocaleDateString("en-US", {
-      weekday: "short", month: "short", day: "numeric",
-    });
+    const key = getDateKeyInTimeZone(new Date(task.dueAt!), timezone);
     if (!acc[key]) acc[key] = [];
     acc[key].push(task);
     return acc;
@@ -71,9 +72,13 @@ export function UpcomingSection({ onTaskUpdate }: UpcomingSectionProps) {
         <span className="ml-2 text-xs font-mono text-[var(--text-muted)]">{tasks.length}</span>
       </div>
       <div className="divide-y divide-[var(--border)]">
-        {Object.entries(grouped).map(([day, dayTasks]) => (
-          <div key={day} className="px-4 py-2">
-            <p className="text-[10px] font-mono text-[var(--accent)] mb-1.5 tracking-wide uppercase">{day}</p>
+        {Object.entries(grouped)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([dayKey, dayTasks]) => (
+          <div key={dayKey} className="px-4 py-2">
+            <p className="text-[10px] font-mono text-[var(--accent)] mb-1.5 tracking-wide uppercase">
+              {formatDateKeyLabel(dayKey, timezone)}
+            </p>
             <ul className="space-y-1">
               {dayTasks.map((task) => (
                 <li key={task.id} className="text-sm text-[var(--text-secondary)] flex items-center justify-between gap-2 py-1 group">

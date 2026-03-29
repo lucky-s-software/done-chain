@@ -89,6 +89,22 @@ export function formatTimeInTimeZone(
   });
 }
 
+export function formatDateInTimeZone(
+  date: Date,
+  timeZone: string,
+  options: Intl.DateTimeFormatOptions = {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  },
+  locale = "en-US"
+): string {
+  return date.toLocaleDateString(locale, {
+    timeZone,
+    ...options,
+  });
+}
+
 export function isMidnightInTimeZone(date: Date, timeZone: string): boolean {
   const parts = getDatePartsInTimeZone(date, timeZone);
   return parts.hour === 0 && parts.minute === 0 && parts.second === 0;

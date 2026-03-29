@@ -1,29 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Task } from "@/types";
+import { formatTimeInTimeZone, getDateKeyInTimeZone } from "@/lib/timezone";
 
 interface TodaySectionProps {
   onTaskUpdate?: () => void;
+  timezone: string;
 }
 
-export function TodaySection({ onTaskUpdate }: TodaySectionProps) {
+export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const res = await fetch("/api/tasks?status=active");
       const data = await res.json();
 
-      const now = new Date();
-      const todayEnd = new Date(now);
-      todayEnd.setHours(23, 59, 59, 999);
+      const todayKey = getDateKeyInTimeZone(new Date(), timezone);
 
       const todayTasks = (data.tasks ?? []).filter((t: Task) => {
         if (!t.dueAt) return true;
         const due = new Date(t.dueAt);
-        return due <= todayEnd;
+        return getDateKeyInTimeZone(due, timezone) <= todayKey;
       });
       setTasks(todayTasks);
     } catch {
@@ -31,9 +31,12 @@ export function TodaySection({ onTaskUpdate }: TodaySectionProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [timezone]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    setLoading(true);
+    load();
+  }, [load]);
 
   const act = async (id: string, action: "complete" | "snooze") => {
     await fetch("/api/tasks", {
@@ -46,6 +49,7 @@ export function TodaySection({ onTaskUpdate }: TodaySectionProps) {
   };
 
   const now = new Date();
+  const todayKey = getDateKeyInTimeZone(now, timezone);
 
   if (loading) {
     return (
@@ -67,7 +71,13 @@ export function TodaySection({ onTaskUpdate }: TodaySectionProps) {
       ) : (
         <ul className="divide-y divide-[var(--border)]">
           {tasks.map((task) => {
-            const overdue = task.dueAt && new Date(task.dueAt) < now;
+            const dueAt = task.dueAt ? new Date(task.dueAt) : null;
+            const dueKey = dueAt ? getDateKeyInTimeZone(dueAt, timezone) : null;
+            const overdue = Boolean(
+              dueAt &&
+                dueKey &&
+                (dueKey < todayKey || (dueKey === todayKey && dueAt.getTime() < now.getTime()))
+            );
             return (
               <li key={task.id} className={`px-4 py-3 ${overdue ? "bg-[var(--danger)]/5" : ""}`}>
                 <div className="flex items-start justify-between gap-2">
@@ -78,7 +88,7 @@ export function TodaySection({ onTaskUpdate }: TodaySectionProps) {
                     {task.dueAt && (
                       <p className={`text-xs font-mono mt-0.5 ${overdue ? "text-[var(--danger)]" : "text-[var(--text-muted)]"}`}>
                         {overdue ? "⚠ " : ""}
-                        {new Date(task.dueAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {dueAt ? formatTimeInTimeZone(dueAt, timezone) : ""}
                       </p>
                     )}
                   </div>

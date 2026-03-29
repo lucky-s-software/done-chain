@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from "react";
 import type { Entry } from "@/types";
+import { formatDateInTimeZone } from "@/lib/timezone";
 
-export function MemorySection() {
+interface MemorySectionProps {
+  timezone: string;
+}
+
+export function MemorySection({ timezone }: MemorySectionProps) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -43,7 +48,7 @@ export function MemorySection() {
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-[10px] font-mono text-[var(--accent)] border border-[var(--accent)]/30 px-1">FACT</span>
                 <span className="text-[10px] font-mono text-[var(--text-muted)]">
-                  {new Date(entry.createdAt).toLocaleDateString()}
+                  {formatDateInTimeZone(new Date(entry.createdAt), timezone)}
                 </span>
                 
                 {entry.tags.length > 0 && (

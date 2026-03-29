@@ -12,6 +12,7 @@ type CardAction = "approve" | "reject" | "dismiss";
 
 interface ActionCardRendererProps {
   card: ActionCard;
+  timezone: string;
   onAction: (
     cardId: string,
     action: CardAction,
@@ -25,10 +26,10 @@ interface ActionCardRendererProps {
   ) => Promise<void>;
 }
 
-export function ActionCardRenderer({ card, onAction }: ActionCardRendererProps) {
+export function ActionCardRenderer({ card, onAction, timezone }: ActionCardRendererProps) {
   switch (card.cardType) {
     case "proposed_task":
-      return <ProposedTaskCard card={card} onAction={onAction} />;
+      return <ProposedTaskCard card={card} onAction={onAction} timezone={timezone} />;
     case "proposed_memory":
       return <ProposedMemoryCard card={card} onAction={onAction} />;
     case "confirm_commitment":

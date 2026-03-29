@@ -5,10 +5,18 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { MAX_TAGS, normalizeTags } from "@/lib/tags";
+import {
+  formatDateInTimeZone,
+  formatTimeInTimeZone,
+  getDateKeyInTimeZone,
+  getDatePartsInTimeZone,
+  zonedDateTimeToUtc,
+} from "@/lib/timezone";
 import type { ActionCard } from "@/types";
 
 interface ProposedTaskCardProps {
   card: ActionCard;
+  timezone: string;
   onAction: (
     cardId: string,
     action: "approve" | "reject" | "dismiss",
@@ -22,20 +30,28 @@ interface ProposedTaskCardProps {
   ) => Promise<void>;
 }
 
-function toLocalDateTimeInput(value?: string | null): string {
+function toTimeZoneDateTimeInput(value: string | null | undefined, timezone: string): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
+  const parts = getDatePartsInTimeZone(date, timezone);
   const pad = (n: number) => String(n).padStart(2, "0");
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hour = pad(date.getHours());
-  const minute = pad(date.getMinutes());
+  const year = parts.year;
+  const month = pad(parts.month);
+  const day = pad(parts.day);
+  const hour = pad(parts.hour);
+  const minute = pad(parts.minute);
   return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
-export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
+function toUtcIsoFromDateTimeInput(value: string, timezone: string): string | null {
+  if (!value) return null;
+  const [dateKey, time] = value.split("T");
+  if (!dateKey || !time) return null;
+  return zonedDateTimeToUtc(dateKey, time.slice(0, 5), timezone).toISOString();
+}
+
+export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardProps) {
   const payload = card.payload as {
     title: string;
     content?: string;
@@ -51,9 +67,11 @@ export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(payload.title);
-  const [editDue, setEditDue] = useState(payload.dueAt ? payload.dueAt.split("T")[0] : "");
+  const [editDue, setEditDue] = useState(
+    payload.dueAt ? getDateKeyInTimeZone(new Date(payload.dueAt), timezone) : ""
+  );
   const [editExecutionStart, setEditExecutionStart] = useState(
-    toLocalDateTimeInput(payload.executionStartAt)
+    toTimeZoneDateTimeInput(payload.executionStartAt, timezone)
   );
   const [editEstimated, setEditEstimated] = useState(
     typeof payload.estimatedMinutes === "number" && payload.estimatedMinutes > 0
@@ -163,16 +181,16 @@ export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
           edits.title = trimmedTitle;
         }
 
-        const originalDue = payload.dueAt ? payload.dueAt.split("T")[0] : "";
-        if (editDue !== originalDue) {
+        const originalDueInTimezone = payload.dueAt
+          ? getDateKeyInTimeZone(new Date(payload.dueAt), timezone)
+          : "";
+        if (editDue !== originalDueInTimezone) {
           edits.dueAt = editDue || null;
         }
 
-        const originalExecutionStart = toLocalDateTimeInput(payload.executionStartAt);
+        const originalExecutionStart = toTimeZoneDateTimeInput(payload.executionStartAt, timezone);
         if (editExecutionStart !== originalExecutionStart) {
-          edits.executionStartAt = editExecutionStart
-            ? new Date(editExecutionStart).toISOString()
-            : null;
+          edits.executionStartAt = toUtcIsoFromDateTimeInput(editExecutionStart, timezone);
         }
 
         const originalEstimate =
@@ -200,7 +218,13 @@ export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
     return (
       <div className="mt-2 px-3 py-2 border border-[var(--border)] bg-[var(--bg-tertiary)] text-xs font-mono text-[var(--text-muted)] flex items-center gap-2">
         {card.status === "approved" ? (
-          <><span className="text-[var(--success)]">✓</span> Task added: &quot;{payload.title}&quot;{payload.dueAt ? ` — due ${new Date(payload.dueAt).toLocaleDateString()}` : ""}</>
+          <>
+            <span className="text-[var(--success)]">✓</span>
+            Task added: &quot;{payload.title}&quot;
+            {payload.dueAt
+              ? ` — due ${formatDateInTimeZone(new Date(payload.dueAt), timezone)}`
+              : ""}
+          </>
         ) : card.status === "rejected" ? (
           <><span className="text-[var(--danger)]">✗</span> Task rejected.</>
         ) : (
@@ -252,15 +276,24 @@ export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
         <div className="mb-2">
           <p className="text-[var(--text-primary)] text-sm font-mono mb-1">&quot;{payload.title}&quot;</p>
           <div className="flex flex-wrap gap-1.5 text-xs text-[var(--text-muted)]">
-            {payload.dueAt && <span>📅 {new Date(payload.dueAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>}
-            {payload.executionStartAt && (
+            {payload.dueAt && (
               <span>
-                ⏱ {new Date(payload.executionStartAt).toLocaleString("en-US", {
+                📅{" "}
+                {formatDateInTimeZone(new Date(payload.dueAt), timezone, {
+                  weekday: "short",
                   month: "short",
                   day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
                 })}
+              </span>
+            )}
+            {payload.executionStartAt && (
+              <span>
+                ⏱{" "}
+                {formatDateInTimeZone(new Date(payload.executionStartAt), timezone, {
+                  month: "short",
+                  day: "numeric",
+                })}{" "}
+                {formatTimeInTimeZone(new Date(payload.executionStartAt), timezone)}
               </span>
             )}
             {typeof payload.estimatedMinutes === "number" && payload.estimatedMinutes > 0 && (

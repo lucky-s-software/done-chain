@@ -6,12 +6,14 @@ import { DayDivider } from "./DayDivider";
 import { ChatInput } from "./ChatInput";
 import { QuickActions } from "./QuickActions";
 import type { Message, ActionCard, SuggestedAction } from "@/types";
+import { getDateKeyInTimeZone } from "@/lib/timezone";
 
 interface ChatPanelProps {
   onDataChange?: () => void;
+  timezone: string;
 }
 
-export function ChatPanel({ onDataChange }: ChatPanelProps) {
+export function ChatPanel({ onDataChange, timezone }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [composerValue, setComposerValue] = useState("");
@@ -340,17 +342,16 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
           const prevMsg = messages[idx - 1];
           const msgDate = new Date(msg.createdAt);
           const prevDate = prevMsg ? new Date(prevMsg.createdAt) : null;
-          const showDivider =
-            !prevDate ||
-            prevDate.getFullYear() !== msgDate.getFullYear() ||
-            prevDate.getMonth() !== msgDate.getMonth() ||
-            prevDate.getDate() !== msgDate.getDate();
+          const msgDayKey = getDateKeyInTimeZone(msgDate, timezone);
+          const prevDayKey = prevDate ? getDateKeyInTimeZone(prevDate, timezone) : null;
+          const showDivider = !prevDayKey || prevDayKey !== msgDayKey;
 
           return (
             <div key={msg.id}>
-              {showDivider && <DayDivider date={msgDate} />}
+              {showDivider && <DayDivider date={msgDate} timezone={timezone} />}
               <MessageBubble
                 message={msg}
+                timezone={timezone}
                 selected={msg.id === selectedMessageId}
                 onCardAction={handleCardAction}
                 onClick={handleMessageClick}

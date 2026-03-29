@@ -2,9 +2,11 @@
 
 import { ActionCardRenderer } from "@/components/cards/ActionCardRenderer";
 import type { Message, ActionCard } from "@/types";
+import { formatTimeInTimeZone } from "@/lib/timezone";
 
 interface MessageBubbleProps {
   message: Message;
+  timezone: string;
   selected?: boolean;
   onCardAction: (
     cardId: string,
@@ -20,7 +22,13 @@ interface MessageBubbleProps {
   onClick?: (messageId: string) => void;
 }
 
-export function MessageBubble({ message, selected, onCardAction, onClick }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  timezone,
+  selected,
+  onCardAction,
+  onClick,
+}: MessageBubbleProps) {
   const isUser = message.role === "user";
 
   return (
@@ -51,14 +59,14 @@ export function MessageBubble({ message, selected, onCardAction, onClick }: Mess
       {!isUser && message.actionCards && message.actionCards.length > 0 && (
         <div className="w-full max-w-[85%] flex flex-col gap-1 mt-1">
           {message.actionCards.map((card: ActionCard) => (
-            <ActionCardRenderer key={card.id} card={card} onAction={onCardAction} />
+            <ActionCardRenderer key={card.id} card={card} onAction={onCardAction} timezone={timezone} />
           ))}
         </div>
       )}
 
       {/* Timestamp */}
       <span className="text-[10px] text-[var(--text-muted)] mt-1 px-1 font-mono">
-        {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        {formatTimeInTimeZone(new Date(message.createdAt), timezone)}
       </span>
     </div>
   );
