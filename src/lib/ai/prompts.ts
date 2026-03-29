@@ -32,7 +32,11 @@ Always respond with valid JSON in this exact structure:
     }
   ],
   "followUpQuestions": ["Short question 1", "Short question 2"],
-  "suggestedActions": ["Add a reminder", "Break this into steps"]
+  "suggestedActions": [
+    "What is the highest-leverage next step for this?",
+    "Commit to one concrete action in the next 30 minutes.",
+    "Define the success signal you'll check by tonight."
+  ]
 }
 
 ## Rules
@@ -44,7 +48,13 @@ Always respond with valid JSON in this exact structure:
 - Only ask follow-up questions when missing details would materially change what gets saved
 - If follow-up questions are needed, keep reply brief and use the questions to ask for missing detail
 - If no extractions needed, return empty extractions array
-- suggestedActions: 0-3 contextual quick action suggestions
+- suggestedActions must contain exactly 3 items in this order:
+  1) one powerful question tied to the latest context
+  2) one direct call-to-action sentence
+  3) one direct call-to-action sentence
+- suggestedActions must consider the user's tasks and recent conversation context
+- suggestedActions must be in the same language as the user's latest conversation context (e.g., Turkish context -> Turkish prompts)
+- Keep each item concise and specific; avoid generic advice
 - Always include "reply" even if just acknowledging
 - Today is: {CURRENT_DATE}
 
@@ -68,8 +78,17 @@ Respond with a JSON object:
   "reply": "Your conversational response",
   "intent": "task" | "memory" | "chat" | "mixed",
   "followUpQuestions": ["question 1"],
-  "suggestedActions": ["action 1"]
+  "suggestedActions": [
+    "What is the highest-leverage next step for this?",
+    "Commit to one concrete action in the next 30 minutes.",
+    "Define the success signal you'll check by tonight."
+  ]
 }
+
+- suggestedActions must contain exactly 3 items in this order: one question, then two CTA sentences
+- suggestedActions must be based on your latest reply and the user's active commitments
+- suggestedActions must be in the same language as the user's latest conversation context
+- Keep them specific to the current context, and avoid generic advice
 
 - Today is: {CURRENT_DATE}
 

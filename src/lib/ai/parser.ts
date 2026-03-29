@@ -73,7 +73,7 @@ async function singleLayerPipeline(
     reply,
     extractions: inferMemoryFromTasks((parsed.extractions || []).map(normalizeExtraction)),
     followUpQuestions,
-    suggestedActions: parsed.suggestedActions || [],
+    suggestedActions: normalizeSuggestedPrompts(parsed.suggestedActions, reply, userContent, attentionContext),
   };
 }
 
@@ -137,7 +137,7 @@ async function twoLayerPipeline(
     reply,
     extractions: inferMemoryFromTasks((layer2.extractions || []).map(normalizeExtraction)),
     followUpQuestions,
-    suggestedActions: layer1.suggestedActions || [],
+    suggestedActions: normalizeSuggestedPrompts(layer1.suggestedActions, reply, userContent, attentionContext),
   };
 }
 
@@ -196,4 +196,123 @@ function buildReply(reply: string, followUpQuestions: string[]): string {
   if (alreadyIncludesQuestion) return reply;
 
   return `${reply}\n\n${followUpQuestions.map((question, index) => `${index + 1}. ${question}`).join("\n")}`;
+}
+
+function normalizeSuggestedPrompts(
+  prompts: string[] | undefined,
+  reply: string,
+  userContent: string,
+  attentionContext: string
+): string[] {
+  const preferredLanguage = detectPreferredLanguage(`${userContent}\n${reply}\n${attentionContext}`);
+
+  const LOW_VALUE_PATTERNS = [
+    /add a reminder/i,
+    /take a note/i,
+    /what'?s due today/i,
+    /summarize session/i,
+    /^remind me/i,
+    /hatırlat(ı|i)cı ekle/i,
+    /not al/i,
+    /bug(ü|u)n ne var/i,
+    /oturumu özetle/i,
+  ];
+
+  const cleaned = (prompts || [])
+    .map((prompt) => prompt.trim().replace(/^[\-*\d.\s]+/, ""))
+    .filter((prompt) => prompt.length >= 12)
+    .filter((prompt) => !LOW_VALUE_PATTERNS.some((pattern) => pattern.test(prompt)))
+    .filter((prompt) => (preferredLanguage === "tr" ? looksTurkish(prompt) : true));
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const prompt of cleaned) {
+    const key = prompt.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(prompt);
+    if (deduped.length === 3) break;
+  }
+
+  const contextSignal = `${reply} ${userContent} ${attentionContext}`.toLocaleLowerCase(
+    preferredLanguage === "tr" ? "tr-TR" : "en-US"
+  );
+  const questionCandidates = deduped
+    .filter((prompt) => prompt.includes("?"))
+    .map((prompt) => (prompt.endsWith("?") ? prompt : `${prompt.replace(/[.!]$/, "")}?`));
+  const ctaCandidates = deduped
+    .filter((prompt) => !prompt.includes("?"))
+    .map((prompt) => prompt.replace(/\?+$/, "").replace(/[.!]?$/, "."));
+
+  const result: string[] = [];
+  const hasScheduleContext = /\b(deadline|due|date|tomorrow|week|month|schedule|son tarih|teslim|tarih|yarın|hafta|ay|takvim)\b/.test(contextSignal);
+  const defaultQuestion =
+    preferredLanguage === "tr"
+      ? hasScheduleContext
+        ? "Bir sonraki kilometre taşı için tam hangi tarih ve saate söz veriyorsun?"
+        : "Şu anda en yüksek etkiyi yaratacak tek adım hangisi?"
+      : hasScheduleContext
+      ? "What exact date and time are you committing to for the next milestone?"
+      : "What is the highest-leverage next step for this right now?";
+  result.push(questionCandidates[0] || defaultQuestion);
+
+  const hasPeopleContext = /\b(team|client|manager|meeting|call|person|people|ekip|müşteri|musteri|yönetici|yonetici|toplantı|toplanti|arama|kişi|kisi|kişiler|kisiler)\b/.test(contextSignal);
+  const fallbackCtas =
+    preferredLanguage === "tr"
+      ? hasPeopleContext
+        ? [
+            "Bugün karar gereken kişiye tek net mesaj gönder.",
+            "Şimdi 20 dakikalık odak bloğu açıp gündemi veya çıktıyı hazırla.",
+          ]
+        : [
+            "Önümüzdeki 30 dakika içinde tek bir somut adım için taahhüt ver.",
+            "Bu akşam kontrol edeceğin başarı sinyalini netleştir.",
+          ]
+      : hasPeopleContext
+      ? [
+          "Send one clear message to the key person and request a decision today.",
+          "Block 20 focused minutes to prepare the exact agenda or deliverable now.",
+        ]
+      : [
+          "Commit to one concrete action in the next 30 minutes.",
+          "Define the success signal you'll check by tonight.",
+        ];
+
+  for (const cta of ctaCandidates) {
+    if (result.length >= 3) break;
+    const normalized = cta.replace(/\?+$/, "").replace(/[.!]?$/, ".");
+    if (!result.some((existing) => existing.toLowerCase() === normalized.toLowerCase())) {
+      result.push(normalized);
+    }
+  }
+
+  for (const prompt of fallbackCtas) {
+    if (result.length >= 3) break;
+    if (!result.some((existing) => existing.toLowerCase() === prompt.toLowerCase())) {
+      result.push(prompt);
+    }
+  }
+
+  if (result.length < 3) {
+    for (const prompt of fallbackCtas) {
+      if (result.length >= 3) break;
+      if (!result.some((existing) => existing.toLowerCase() === prompt.toLowerCase())) {
+        result.push(prompt);
+      }
+    }
+  }
+
+  return result.slice(0, 3);
+}
+
+function detectPreferredLanguage(signal: string): "tr" | "en" {
+  if (looksTurkish(signal)) return "tr";
+  return "en";
+}
+
+function looksTurkish(text: string): boolean {
+  if (/[çğıöşüÇĞİÖŞÜ]/.test(text)) return true;
+  return /\b(ve|bir|için|icin|ile|ama|şu|su|bu|ne|nasıl|nasil|hangi|görev|hatırlatma|hatirlatma|bugün|bugun|yarın|yarin|hafta|ay|toplantı|toplanti|ekip|müşteri|musteri)\b/i.test(
+    text
+  );
 }

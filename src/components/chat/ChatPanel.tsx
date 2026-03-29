@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { MessageBubble } from "./MessageBubble";
 import { DayDivider } from "./DayDivider";
 import { ChatInput } from "./ChatInput";
@@ -17,6 +17,8 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [memoriesBanner, setMemoriesBanner] = useState<number>(0);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [selectionFlow, setSelectionFlow] = useState<"actions" | "confirm_delete">("actions");
+  const [selectionFeedback, setSelectionFeedback] = useState<string | null>(null);
   const [deletingUpTo, setDeletingUpTo] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -55,31 +57,37 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      const message = data?.message as Message | undefined;
+      const memoriesCreated = typeof data?.memoriesCreated === "number" ? data.memoriesCreated : 0;
+
+      if (!res.ok || !message) {
+        throw new Error(data?.error || "Failed to send message");
+      }
 
       // Replace optimistic message + add real user msg + assistant msg
       setMessages((prev) => {
         const without = prev.filter((m) => m.id !== tempId);
-        return [...without, data.message];
+        return [...without, message];
       });
 
-      if (data.suggestedActions?.length) {
-        setSuggestions(data.suggestedActions);
-      }
+      setSuggestions(Array.isArray(data.suggestedActions) ? data.suggestedActions.slice(0, 3) : []);
 
-      if (data.memoriesCreated > 0) {
-        setMemoriesBanner(data.memoriesCreated);
+      if (memoriesCreated > 0) {
+        setMemoriesBanner(memoriesCreated);
         setTimeout(() => setMemoriesBanner(0), 5000);
       }
 
-      if (data.memoriesCreated > 0 || data.message.actionCards?.length > 0) {
+      if (memoriesCreated > 0 || (message.actionCards?.length ?? 0) > 0) {
         onDataChange?.();
       }
 
       // Reload to get actual saved user message with correct id
       const histRes = await fetch("/api/messages?limit=50");
-      const histData = await histRes.json();
-      if (histData.messages) setMessages(histData.messages);
+      if (histRes.ok) {
+        const histData = await histRes.json();
+        if (histData.messages) setMessages(histData.messages);
+      }
     } catch (err) {
       console.error("[chat send]", err);
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
@@ -141,31 +149,71 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
 
   const handleMessageClick = useCallback((messageId: string) => {
     setSelectedMessageId((prev) => (prev === messageId ? null : messageId));
+    setSelectionFlow("actions");
+    setSelectionFeedback(null);
   }, []);
 
   const selectedIndex = selectedMessageId ? messages.findIndex((m) => m.id === selectedMessageId) : -1;
-  const deleteCount = selectedIndex >= 0 ? selectedIndex + 1 : 0;
+  const selectedMessages = useMemo(
+    () => (selectedIndex >= 0 ? messages.slice(selectedIndex) : []),
+    [messages, selectedIndex]
+  );
+  const deleteCount = selectedMessages.length;
+
+  const writeClipboard = useCallback(async (text: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSelectionFeedback(successMessage);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setSelectionFeedback(copied ? successMessage : "Copy failed.");
+    }
+  }, []);
+
+  const handleCopySingle = useCallback(async () => {
+    if (selectedIndex < 0) return;
+    const selected = messages[selectedIndex];
+    await writeClipboard(selected.content, "Copied selected message.");
+  }, [messages, selectedIndex, writeClipboard]);
+
+  const handleCopyStartingThis = useCallback(async () => {
+    if (selectedMessages.length === 0) return;
+    const transcript = selectedMessages
+      .map((msg) => `${msg.role === "user" ? "You" : "Donechain"}: ${msg.content}`)
+      .join("\n\n");
+    await writeClipboard(transcript, `Copied ${selectedMessages.length} message${selectedMessages.length !== 1 ? "s" : ""}.`);
+  }, [selectedMessages, writeClipboard]);
 
   const handleBulkDelete = useCallback(async () => {
-    if (!selectedMessageId) return;
+    if (!selectedMessageId || deleteCount <= 0) return;
     setDeletingUpTo(true);
     try {
       await fetch("/api/messages/bulk-delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ upToMessageId: selectedMessageId }),
+        body: JSON.stringify({ fromMessageId: selectedMessageId, includeSelected: true }),
       });
       const histRes = await fetch("/api/messages?limit=50");
       const histData = await histRes.json();
       if (histData.messages) setMessages(histData.messages);
       setSelectedMessageId(null);
+      setSelectionFlow("actions");
+      setSelectionFeedback(null);
       onDataChange?.();
     } catch (err) {
       console.error("[bulk delete]", err);
     } finally {
       setDeletingUpTo(false);
     }
-  }, [selectedMessageId, onDataChange]);
+  }, [selectedMessageId, deleteCount, onDataChange]);
 
   return (
     <div className="flex flex-col h-full">
@@ -177,22 +225,73 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
         </div>
       )}
 
-      {/* Bulk delete confirmation bar */}
+      {/* Selection actions bar */}
       {selectedMessageId && (
         <div className="px-4 py-2 bg-[var(--bg-tertiary)] border-b border-[var(--border)] text-xs font-mono flex items-center justify-between gap-3">
-          <span className="text-[var(--text-muted)]">Delete {deleteCount} message{deleteCount !== 1 ? "s" : ""} up to this point?</span>
+          <span className="text-[var(--text-muted)]">
+            {selectionFlow === "confirm_delete"
+              ? `${deleteCount} message${deleteCount !== 1 ? "s" : ""} will be deleted: confirm`
+              : "Selected message actions"}
+          </span>
           <div className="flex gap-2">
-            <button
-              onClick={handleBulkDelete}
-              disabled={deletingUpTo}
-              className="text-red-500 hover:text-red-400 disabled:opacity-50"
-            >
-              {deletingUpTo ? "Deleting…" : "Confirm"}
-            </button>
-            <button onClick={() => setSelectedMessageId(null)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-              Cancel
-            </button>
+            {selectionFlow === "confirm_delete" ? (
+              <>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={deletingUpTo || deleteCount <= 0}
+                  className="text-red-500 hover:text-red-400 disabled:opacity-50"
+                >
+                  {deletingUpTo ? "Deleting…" : "Confirm"}
+                </button>
+                <button
+                  onClick={() => setSelectionFlow("actions")}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={() => setSelectedMessageId(null)}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleCopySingle}
+                  className="text-[var(--text-muted)] hover:text-[var(--accent)]"
+                >
+                  Copy
+                </button>
+                <button
+                  onClick={handleCopyStartingThis}
+                  disabled={deleteCount <= 0}
+                  className="text-[var(--text-muted)] hover:text-[var(--accent)] disabled:opacity-50"
+                >
+                  Copy starting this
+                </button>
+                <button
+                  onClick={() => setSelectionFlow("confirm_delete")}
+                  disabled={deleteCount <= 0}
+                  className="text-red-500 hover:text-red-400 disabled:opacity-50"
+                >
+                  Delete starting this
+                </button>
+                <button
+                  onClick={() => setSelectedMessageId(null)}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
           </div>
+        </div>
+      )}
+      {selectedMessageId && selectionFeedback && (
+        <div className="px-4 py-1 bg-[var(--bg-tertiary)] border-b border-[var(--border)] text-[10px] font-mono text-[var(--info)]">
+          {selectionFeedback}
         </div>
       )}
 
