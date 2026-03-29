@@ -11,7 +11,13 @@ export async function PATCH(
     const body = await req.json();
     const { action, edits } = body as {
       action: "approve" | "reject" | "dismiss";
-      edits?: { title?: string; dueAt?: string | null; tags?: string[] };
+      edits?: {
+        title?: string;
+        dueAt?: string | null;
+        tags?: string[];
+        estimatedMinutes?: number | null;
+        executionStartAt?: string | null;
+      };
     };
 
     const card = await prisma.actionCard.findUnique({ where: { id } });
@@ -40,6 +46,21 @@ export async function PATCH(
             ...(edits?.title ? { title: edits.title } : {}),
             ...(edits?.dueAt !== undefined
               ? { dueAt: edits.dueAt ? new Date(edits.dueAt) : null }
+              : {}),
+            ...(edits?.executionStartAt !== undefined
+              ? {
+                  executionStartAt: edits.executionStartAt
+                    ? new Date(edits.executionStartAt)
+                    : null,
+                }
+              : {}),
+            ...(edits?.estimatedMinutes !== undefined
+              ? {
+                  estimatedMinutes:
+                    typeof edits.estimatedMinutes === "number" && edits.estimatedMinutes > 0
+                      ? Math.max(1, Math.round(edits.estimatedMinutes))
+                      : null,
+                }
               : {}),
             ...(normalizedTags !== undefined
               ? { tags: JSON.stringify(normalizedTags) }

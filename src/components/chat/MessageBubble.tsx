@@ -9,7 +9,13 @@ interface MessageBubbleProps {
   onCardAction: (
     cardId: string,
     action: "approve" | "reject" | "dismiss",
-    edits?: { title?: string; dueAt?: string; tags?: string[] }
+    edits?: {
+      title?: string;
+      dueAt?: string | null;
+      tags?: string[];
+      estimatedMinutes?: number | null;
+      executionStartAt?: string | null;
+    }
   ) => Promise<void>;
   onClick?: (messageId: string) => void;
 }

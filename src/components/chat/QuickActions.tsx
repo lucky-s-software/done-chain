@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import type { SuggestedAction } from "@/types";
 
 interface QuickActionsProps {
-  suggestions: string[];
+  suggestions: SuggestedAction[];
   onSelect: (text: string) => void;
 }
 
-const STATIC_DEFAULTS = [
-  "What is the highest-leverage next step for this right now?",
-  "Commit to one concrete action in the next 30 minutes.",
-  "Define the success signal you'll check by tonight.",
+const STATIC_DEFAULTS: SuggestedAction[] = [
+  { text: "Can you give me a quick view of my current commitments and biggest pain points right now?", kind: "question" },
+  { text: "I am planning to ... in my next focus window. Help me expand this into realistic first steps.", kind: "action" },
+  { text: "I may be late on ... (or it is already overdue). Help me triage what to do now, defer, or renegotiate.", kind: "action" },
 ];
 
 export function QuickActions({ suggestions, onSelect }: QuickActionsProps) {
@@ -38,11 +39,15 @@ export function QuickActions({ suggestions, onSelect }: QuickActionsProps) {
         <div className="flex flex-wrap gap-2">
           {chips.slice(0, 3).map((s) => (
             <button
-              key={s}
-              onClick={() => onSelect(s)}
+              key={`${s.kind}-${s.text}`}
+              type="button"
+              onClick={() => onSelect(s.text)}
               className="px-2.5 py-1 text-xs font-mono text-[var(--text-muted)] border border-[var(--border)] bg-[var(--bg-tertiary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors duration-150"
             >
-              {s}
+              <span>{s.text}</span>
+              {s.kind === "action" && typeof s.estimatedMinutes === "number" && s.estimatedMinutes > 0 && (
+                <span className="ml-1 text-[10px] text-[var(--accent)]">· {s.estimatedMinutes}m</span>
+              )}
             </button>
           ))}
         </div>

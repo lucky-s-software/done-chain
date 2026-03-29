@@ -26,6 +26,8 @@ Always respond with valid JSON in this exact structure:
       "dueAt": "ISO date string or null",
       "dueType": "soft" | "hard" | null,
       "reminderAt": "ISO date string or null",
+      "estimatedMinutes": "positive integer or null",
+      "executionStartAt": "ISO date string or null",
       "tags": ["tag1", "tag2"],
       "person": "Person name or null",
       "confidence": 0.0
@@ -33,9 +35,18 @@ Always respond with valid JSON in this exact structure:
   ],
   "followUpQuestions": ["Short question 1", "Short question 2"],
   "suggestedActions": [
-    "What is the highest-leverage next step for this?",
-    "Commit to one concrete action in the next 30 minutes.",
-    "Define the success signal you'll check by tonight."
+    {
+      "text": "Can you give me a quick view of my current commitments and biggest pain points right now?",
+      "kind": "question"
+    },
+    {
+      "text": "I am planning to ... in my next focus window. Help me expand this into realistic first steps.",
+      "kind": "action"
+    },
+    {
+      "text": "I may be late on ... (or it is already overdue). Help me triage what to do now, defer, or renegotiate.",
+      "kind": "action"
+    }
   ]
 }
 
@@ -48,11 +59,17 @@ Always respond with valid JSON in this exact structure:
 - Only ask follow-up questions when missing details would materially change what gets saved
 - If follow-up questions are needed, keep reply brief and use the questions to ask for missing detail
 - If no extractions needed, return empty extractions array
+- estimatedMinutes and executionStartAt are optional
+- Use executionStartAt when the user explicitly indicates when to execute (planning/start time). dueAt remains deadline/target date.
 - suggestedActions must contain exactly 3 items in this order:
-  1) one powerful question tied to the latest context
-  2) one direct call-to-action sentence
-  3) one direct call-to-action sentence
+  1) one user-facing question for AI about the current overall view/pain points (kind: question)
+  2) one user-facing planning starter phrase in first person that starts with "I am planning to ..." (kind: action)
+  3) one user-facing risk starter phrase in first person that addresses delay/overdue risk, starts with "I may be late on ..." or equivalent (kind: action)
+- suggestedActions are drafts the user will click and edit in the message box, so write from the user's perspective (never assistant commands like "commit to..." or "send...")
+- Suggested action #2 and #3 must explicitly invite continuation with a fill-in phrase (for example using "...")
+- Only action items may include estimatedMinutes
 - suggestedActions must consider the user's tasks and recent conversation context
+- suggestedActions #2 and #3 should reflect the user profile and attention context when possible (focus window, workload, known constraints)
 - suggestedActions must be in the same language as the user's latest conversation context (e.g., Turkish context -> Turkish prompts)
 - Keep each item concise and specific; avoid generic advice
 - Always include "reply" even if just acknowledging
@@ -79,14 +96,21 @@ Respond with a JSON object:
   "intent": "task" | "memory" | "chat" | "mixed",
   "followUpQuestions": ["question 1"],
   "suggestedActions": [
-    "What is the highest-leverage next step for this?",
-    "Commit to one concrete action in the next 30 minutes.",
-    "Define the success signal you'll check by tonight."
+    { "text": "Can you give me a quick view of my current commitments and biggest pain points right now?", "kind": "question" },
+    { "text": "I am planning to ... in my next focus window. Help me expand this into realistic first steps.", "kind": "action" },
+    { "text": "I may be late on ... (or it is already overdue). Help me triage what to do now, defer, or renegotiate.", "kind": "action" }
   ]
 }
 
-- suggestedActions must contain exactly 3 items in this order: one question, then two CTA sentences
+- suggestedActions must contain exactly 3 items in this order:
+  1) one user-facing question for AI about overall view/pain points
+  2) one user-facing first-person planning starter (starts with "I am planning to ..." or localized equivalent)
+  3) one user-facing first-person delay/overdue-risk starter (starts with "I may be late on ..." or localized equivalent)
+- suggestedActions are drafts for the user to edit before sending, so write from the user's perspective and avoid assistant-side commands
+- #2 and #3 should include a continuation cue (for example "...")
+- Only action kind may include estimatedMinutes
 - suggestedActions must be based on your latest reply and the user's active commitments
+- suggestedActions #2 and #3 should adapt to profile and attention context when available
 - suggestedActions must be in the same language as the user's latest conversation context
 - Keep them specific to the current context, and avoid generic advice
 
@@ -114,6 +138,8 @@ Respond with this exact JSON structure:
       "dueAt": "ISO date string or null",
       "dueType": "soft" | "hard" | null,
       "reminderAt": "ISO date string or null",
+      "estimatedMinutes": "positive integer or null",
+      "executionStartAt": "ISO date string or null",
       "tags": ["tag1"],
       "person": "Person name or null",
       "confidence": 0.0

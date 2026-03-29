@@ -104,6 +104,8 @@ model Task {
   dueAt           DateTime?
   dueType         DueType?
   reminderAt      DateTime?
+  estimatedMinutes Int?
+  executionStartAt DateTime?
   sourceEntryId   String?
   sourceEntry     Entry?        @relation("SourceEntry", fields: [sourceEntryId], references: [id])
   tags            String        @default("[]")

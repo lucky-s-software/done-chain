@@ -28,7 +28,10 @@ export async function POST(req: NextRequest) {
 
     // 2. Build attention window + recent conversation history
     const recentConversationHistory = await getRecentConversationHistory(prisma, 12);
-    const profile = await getProfile();
+    const profile = await getProfile().catch((error) => {
+      console.warn("[chat] profile unavailable:", error);
+      return "";
+    });
 
     // 2a. Run prompt improver (knowledge selection + intent enrichment)
     const { knowledgeContent, enrichedContext } = await runPromptImprover(content, profile).catch(
@@ -112,6 +115,8 @@ export async function POST(req: NextRequest) {
               dueAt: ext.dueAt?.toISOString() ?? null,
               dueType: ext.dueType,
               reminderAt: ext.reminderAt?.toISOString() ?? null,
+              estimatedMinutes: ext.estimatedMinutes ?? null,
+              executionStartAt: ext.executionStartAt?.toISOString() ?? null,
               tags: normalizedTags,
               person: ext.person,
               confidence: ext.confidence,
@@ -144,8 +149,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[chat] error:", err);
+    const details = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to process message" },
+      { error: "Failed to process message", details },
       { status: 500 }
     );
   }

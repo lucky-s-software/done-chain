@@ -9,14 +9,39 @@ import type { ActionCard } from "@/types";
 
 interface ProposedTaskCardProps {
   card: ActionCard;
-  onAction: (cardId: string, action: "approve" | "reject" | "dismiss", edits?: { title?: string; dueAt?: string; tags?: string[] }) => Promise<void>;
+  onAction: (
+    cardId: string,
+    action: "approve" | "reject" | "dismiss",
+    edits?: {
+      title?: string;
+      dueAt?: string | null;
+      tags?: string[];
+      estimatedMinutes?: number | null;
+      executionStartAt?: string | null;
+    }
+  ) => Promise<void>;
+}
+
+function toLocalDateTimeInput(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hour = pad(date.getHours());
+  const minute = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
   const payload = card.payload as {
     title: string;
     content?: string;
-    dueAt?: string;
+    dueAt?: string | null;
+    executionStartAt?: string | null;
+    estimatedMinutes?: number | null;
     dueType?: string;
     tags?: string[];
     person?: string;
@@ -27,6 +52,14 @@ export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(payload.title);
   const [editDue, setEditDue] = useState(payload.dueAt ? payload.dueAt.split("T")[0] : "");
+  const [editExecutionStart, setEditExecutionStart] = useState(
+    toLocalDateTimeInput(payload.executionStartAt)
+  );
+  const [editEstimated, setEditEstimated] = useState(
+    typeof payload.estimatedMinutes === "number" && payload.estimatedMinutes > 0
+      ? String(payload.estimatedMinutes)
+      : ""
+  );
   const [editTags, setEditTags] = useState<string[]>(() => normalizeTags(payload.tags ?? []));
   const [tagInput, setTagInput] = useState("");
   const [tagError, setTagError] = useState<string | null>(null);
@@ -116,7 +149,13 @@ export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
   const handleApprove = async () => {
     try {
       setLoading(true);
-      const edits: { title?: string; dueAt?: string; tags?: string[] } = {};
+      const edits: {
+        title?: string;
+        dueAt?: string | null;
+        tags?: string[];
+        estimatedMinutes?: number | null;
+        executionStartAt?: string | null;
+      } = {};
 
       if (editing) {
         const trimmedTitle = editTitle.trim();
@@ -125,8 +164,25 @@ export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
         }
 
         const originalDue = payload.dueAt ? payload.dueAt.split("T")[0] : "";
-        if (editDue && editDue !== originalDue) {
-          edits.dueAt = editDue;
+        if (editDue !== originalDue) {
+          edits.dueAt = editDue || null;
+        }
+
+        const originalExecutionStart = toLocalDateTimeInput(payload.executionStartAt);
+        if (editExecutionStart !== originalExecutionStart) {
+          edits.executionStartAt = editExecutionStart
+            ? new Date(editExecutionStart).toISOString()
+            : null;
+        }
+
+        const originalEstimate =
+          typeof payload.estimatedMinutes === "number" && payload.estimatedMinutes > 0
+            ? String(payload.estimatedMinutes)
+            : "";
+        if (editEstimated !== originalEstimate) {
+          const parsed = Number.parseInt(editEstimated, 10);
+          edits.estimatedMinutes =
+            Number.isFinite(parsed) && parsed > 0 ? Math.max(1, parsed) : null;
         }
       }
 
@@ -175,12 +231,41 @@ export function ProposedTaskCard({ card, onAction }: ProposedTaskCardProps) {
             value={editDue}
             onChange={(e) => setEditDue(e.target.value)}
           />
+          <input
+            type="datetime-local"
+            className="bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-secondary)] text-xs font-mono px-2 py-1 focus:outline-none focus:border-[var(--accent)]"
+            value={editExecutionStart}
+            onChange={(e) => setEditExecutionStart(e.target.value)}
+          />
+          <input
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            className="bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-secondary)] text-xs font-mono px-2 py-1 focus:outline-none focus:border-[var(--accent)]"
+            placeholder="Estimated minutes (optional)"
+            value={editEstimated}
+            onChange={(e) => setEditEstimated(e.target.value)}
+          />
         </div>
       ) : (
         <div className="mb-2">
           <p className="text-[var(--text-primary)] text-sm font-mono mb-1">&quot;{payload.title}&quot;</p>
           <div className="flex flex-wrap gap-1.5 text-xs text-[var(--text-muted)]">
             {payload.dueAt && <span>📅 {new Date(payload.dueAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>}
+            {payload.executionStartAt && (
+              <span>
+                ⏱ {new Date(payload.executionStartAt).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
+            {typeof payload.estimatedMinutes === "number" && payload.estimatedMinutes > 0 && (
+              <span>≈ {payload.estimatedMinutes}m</span>
+            )}
             {payload.person && <span>👤 {payload.person}</span>}
             {payload.dueType && <Badge variant={payload.dueType === "hard" ? "danger" : "muted"}>{payload.dueType}</Badge>}
           </div>

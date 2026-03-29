@@ -47,11 +47,19 @@ export interface Task {
   dueAt: string | null;
   dueType: DueType | null;
   reminderAt: string | null;
+  estimatedMinutes: number | null;
+  executionStartAt: string | null;
   tags: string[];
   projectId: string | null;
   personId: string | null;
   createdAt: string;
   completedAt: string | null;
+}
+
+export interface SuggestedAction {
+  text: string;
+  kind: "question" | "action";
+  estimatedMinutes?: number;
 }
 
 export interface Entry {
@@ -72,6 +80,8 @@ export interface RawExtraction {
   dueAt?: string | null;
   dueType?: string | null;
   reminderAt?: string | null;
+  estimatedMinutes?: number | null;
+  executionStartAt?: string | null;
   tags?: string[];
   person?: string | null;
   confidence?: number;
@@ -84,6 +94,8 @@ export interface NormalizedExtraction {
   dueAt: Date | null;
   dueType: DueType | null;
   reminderAt: Date | null;
+  estimatedMinutes: number | null;
+  executionStartAt: Date | null;
   tags: string[];
   person: string | null;
   confidence: number;
@@ -93,7 +105,7 @@ export interface ParseResult {
   reply: string;
   extractions: NormalizedExtraction[];
   followUpQuestions: string[];
-  suggestedActions: string[];
+  suggestedActions: SuggestedAction[];
 }
 
 // API response contracts
@@ -101,7 +113,7 @@ export interface ChatResponse {
   message: Message;
   memoriesCreated: number;
   followUpQuestions?: string[];
-  suggestedActions?: string[];
+  suggestedActions?: SuggestedAction[];
 }
 
 export interface CardActionResponse {

@@ -8,7 +8,13 @@ import {
   CLARIFICATION_RESOLVED_INSTRUCTION,
 } from "@/lib/ai/prompts";
 import { getClarificationContext } from "@/lib/ai/clarification";
-import type { ParseResult, RawExtraction, NormalizedExtraction, DueType } from "@/types";
+import type {
+  ParseResult,
+  RawExtraction,
+  NormalizedExtraction,
+  DueType,
+  SuggestedAction,
+} from "@/types";
 
 const USE_TWO_LAYER_AI = process.env.USE_TWO_LAYER_AI === "true";
 
@@ -18,10 +24,24 @@ export async function parseUserMessage(
   recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[] = [],
   clarificationTopicKey?: string
 ): Promise<ParseResult> {
-  if (USE_TWO_LAYER_AI) {
-    return twoLayerPipeline(userContent, attentionContext, recentConversationHistory, clarificationTopicKey);
+  try {
+    if (USE_TWO_LAYER_AI) {
+      return twoLayerPipeline(userContent, attentionContext, recentConversationHistory, clarificationTopicKey);
+    }
+    return singleLayerPipeline(userContent, attentionContext, recentConversationHistory, clarificationTopicKey);
+  } catch (err) {
+    console.error("[parser] pipeline error:", err);
+    const language = detectPreferredLanguage(`${userContent}\n${attentionContext}`);
+    return {
+      reply:
+        language === "tr"
+          ? "Mesajını aldım. AI tarafında geçici bir sorun var, ama devam edebiliriz."
+          : "I got your message. There is a temporary AI issue right now, but we can continue.",
+      extractions: [],
+      followUpQuestions: [],
+      suggestedActions: normalizeSuggestedActions([], "", userContent, attentionContext),
+    };
   }
-  return singleLayerPipeline(userContent, attentionContext, recentConversationHistory, clarificationTopicKey);
 }
 
 async function singleLayerPipeline(
@@ -58,7 +78,7 @@ async function singleLayerPipeline(
     reply?: string;
     extractions?: RawExtraction[];
     followUpQuestions?: string[];
-    suggestedActions?: string[];
+    suggestedActions?: unknown;
   };
   try {
     parsed = JSON.parse(cleaned || "{}");
@@ -73,7 +93,7 @@ async function singleLayerPipeline(
     reply,
     extractions: inferMemoryFromTasks((parsed.extractions || []).map(normalizeExtraction)),
     followUpQuestions,
-    suggestedActions: normalizeSuggestedPrompts(parsed.suggestedActions, reply, userContent, attentionContext),
+    suggestedActions: normalizeSuggestedActions(parsed.suggestedActions, reply, userContent, attentionContext),
   };
 }
 
@@ -106,7 +126,7 @@ async function twoLayerPipeline(
     max_tokens: 800,
   });
 
-  let layer1: { reply?: string; intent?: string; followUpQuestions?: string[]; suggestedActions?: string[] };
+  let layer1: { reply?: string; intent?: string; followUpQuestions?: string[]; suggestedActions?: unknown };
   try {
     layer1 = JSON.parse(rawReply);
   } catch {
@@ -137,11 +157,16 @@ async function twoLayerPipeline(
     reply,
     extractions: inferMemoryFromTasks((layer2.extractions || []).map(normalizeExtraction)),
     followUpQuestions,
-    suggestedActions: normalizeSuggestedPrompts(layer1.suggestedActions, reply, userContent, attentionContext),
+    suggestedActions: normalizeSuggestedActions(layer1.suggestedActions, reply, userContent, attentionContext),
   };
 }
 
 function normalizeExtraction(ext: RawExtraction): NormalizedExtraction {
+  const estimated =
+    typeof ext.estimatedMinutes === "number" && Number.isFinite(ext.estimatedMinutes)
+      ? Math.max(1, Math.round(ext.estimatedMinutes))
+      : null;
+
   return {
     type: ext.type,
     title: ext.title,
@@ -149,6 +174,8 @@ function normalizeExtraction(ext: RawExtraction): NormalizedExtraction {
     dueAt: ext.dueAt ? new Date(ext.dueAt) : null,
     dueType: (ext.dueType as DueType) || null,
     reminderAt: ext.reminderAt ? new Date(ext.reminderAt) : null,
+    estimatedMinutes: estimated,
+    executionStartAt: ext.executionStartAt ? new Date(ext.executionStartAt) : null,
     tags: ext.tags || [],
     person: ext.person || null,
     confidence: Math.min(1, Math.max(0, ext.confidence ?? 0.5)),
@@ -198,111 +225,122 @@ function buildReply(reply: string, followUpQuestions: string[]): string {
   return `${reply}\n\n${followUpQuestions.map((question, index) => `${index + 1}. ${question}`).join("\n")}`;
 }
 
-function normalizeSuggestedPrompts(
-  prompts: string[] | undefined,
+function normalizeSuggestedActions(
+  prompts: unknown,
   reply: string,
   userContent: string,
   attentionContext: string
-): string[] {
+): SuggestedAction[] {
   const preferredLanguage = detectPreferredLanguage(`${userContent}\n${reply}\n${attentionContext}`);
-
-  const LOW_VALUE_PATTERNS = [
-    /add a reminder/i,
-    /take a note/i,
-    /what'?s due today/i,
-    /summarize session/i,
-    /^remind me/i,
-    /hatırlat(ı|i)cı ekle/i,
-    /not al/i,
-    /bug(ü|u)n ne var/i,
-    /oturumu özetle/i,
-  ];
-
-  const cleaned = (prompts || [])
-    .map((prompt) => prompt.trim().replace(/^[\-*\d.\s]+/, ""))
-    .filter((prompt) => prompt.length >= 12)
-    .filter((prompt) => !LOW_VALUE_PATTERNS.some((pattern) => pattern.test(prompt)))
-    .filter((prompt) => (preferredLanguage === "tr" ? looksTurkish(prompt) : true));
-
-  const deduped: string[] = [];
-  const seen = new Set<string>();
-  for (const prompt of cleaned) {
-    const key = prompt.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(prompt);
-    if (deduped.length === 3) break;
-  }
-
   const contextSignal = `${reply} ${userContent} ${attentionContext}`.toLocaleLowerCase(
     preferredLanguage === "tr" ? "tr-TR" : "en-US"
   );
-  const questionCandidates = deduped
-    .filter((prompt) => prompt.includes("?"))
-    .map((prompt) => (prompt.endsWith("?") ? prompt : `${prompt.replace(/[.!]$/, "")}?`));
-  const ctaCandidates = deduped
-    .filter((prompt) => !prompt.includes("?"))
-    .map((prompt) => prompt.replace(/\?+$/, "").replace(/[.!]?$/, "."));
+  const parsedPrompts = parseSuggestedActions(prompts)
+    .map((prompt) => prompt.text.trim())
+    .filter((text) => text.length >= 16);
 
-  const result: string[] = [];
-  const hasScheduleContext = /\b(deadline|due|date|tomorrow|week|month|schedule|son tarih|teslim|tarih|yarın|hafta|ay|takvim)\b/.test(contextSignal);
-  const defaultQuestion =
+  const questionCandidate = parsedPrompts.find((text) => {
+    if (preferredLanguage === "tr") {
+      return /\?/.test(text) && /\b(bana|bizim|şu an|genel|durum|tıkan|sorun|pain)\b/i.test(text);
+    }
+    return /\?/.test(text) && /\b(can you|could you|overview|pain point|bottleneck|current)\b/i.test(text);
+  });
+
+  const focusWindow = inferFocusWindowLabel(contextSignal, preferredLanguage);
+  const hasOverdueContext = /\b(overdue|behind|late|missed|slipped|past due|gecik|sarkt|ertele|kaçırd|kaçirdi|vadesi geçti)\b/.test(
+    contextSignal
+  );
+
+  const fallbackQuestion =
     preferredLanguage === "tr"
-      ? hasScheduleContext
-        ? "Bir sonraki kilometre taşı için tam hangi tarih ve saate söz veriyorsun?"
-        : "Şu anda en yüksek etkiyi yaratacak tek adım hangisi?"
-      : hasScheduleContext
-      ? "What exact date and time are you committing to for the next milestone?"
-      : "What is the highest-leverage next step for this right now?";
-  result.push(questionCandidates[0] || defaultQuestion);
+      ? "Mevcut taahhütlerimin genel görünümünü ve şu anki en büyük tıkanmaları çıkarır mısın?"
+      : "Can you give me a quick view of my current commitments and biggest pain points right now?";
 
-  const hasPeopleContext = /\b(team|client|manager|meeting|call|person|people|ekip|müşteri|musteri|yönetici|yonetici|toplantı|toplanti|arama|kişi|kisi|kişiler|kisiler)\b/.test(contextSignal);
-  const fallbackCtas =
+  const planningStarter =
     preferredLanguage === "tr"
-      ? hasPeopleContext
-        ? [
-            "Bugün karar gereken kişiye tek net mesaj gönder.",
-            "Şimdi 20 dakikalık odak bloğu açıp gündemi veya çıktıyı hazırla.",
-          ]
-        : [
-            "Önümüzdeki 30 dakika içinde tek bir somut adım için taahhüt ver.",
-            "Bu akşam kontrol edeceğin başarı sinyalini netleştir.",
-          ]
-      : hasPeopleContext
-      ? [
-          "Send one clear message to the key person and request a decision today.",
-          "Block 20 focused minutes to prepare the exact agenda or deliverable now.",
-        ]
-      : [
-          "Commit to one concrete action in the next 30 minutes.",
-          "Define the success signal you'll check by tonight.",
-        ];
+      ? `Şunu ${focusWindow} planlıyorum: ... Bunu gerçekçi ilk adımlara genişletmeme yardım eder misin?`
+      : `I am planning to ... ${focusWindow}. Help me expand this into realistic first steps.`;
 
-  for (const cta of ctaCandidates) {
-    if (result.length >= 3) break;
-    const normalized = cta.replace(/\?+$/, "").replace(/[.!]?$/, ".");
-    if (!result.some((existing) => existing.toLowerCase() === normalized.toLowerCase())) {
-      result.push(normalized);
-    }
+  const riskStarter =
+    preferredLanguage === "tr"
+      ? hasOverdueContext
+        ? "Gecikmiş işlerim var: ... Bugün neyi yapıp neyi ertelemem veya yeniden pazarlık etmem gerektiğini netleştirir misin?"
+        : "Şunda gecikme riski görüyorum: ... Gecikmeye düşmeden toparlamak için bir plan çıkarır mısın?"
+      : hasOverdueContext
+      ? "I already have overdue tasks around ... Help me triage what to do now, defer, or renegotiate."
+      : "I might be late on ... Help me prevent delay and set a recovery plan before it becomes overdue.";
+
+  return [
+    { text: questionCandidate ?? fallbackQuestion, kind: "question" },
+    { text: planningStarter, kind: "action" },
+    { text: riskStarter, kind: "action" },
+  ];
+}
+
+function inferFocusWindowLabel(contextSignal: string, language: "tr" | "en"): string {
+  if (language === "tr") {
+    if (/\b(sabah|morning|08:|09:|10:|11:)\b/.test(contextSignal)) return "sabah odak penceremde";
+    if (/\b(öğleden sonra|ogleden sonra|afternoon|13:|14:|15:|16:)\b/.test(contextSignal)) return "öğleden sonra odak penceremde";
+    if (/\b(akşam|aksam|gece|evening|night|18:|19:|20:|21:)\b/.test(contextSignal)) return "akşam odak penceremde";
+    return "bir sonraki odak penceremde";
   }
 
-  for (const prompt of fallbackCtas) {
-    if (result.length >= 3) break;
-    if (!result.some((existing) => existing.toLowerCase() === prompt.toLowerCase())) {
-      result.push(prompt);
+  if (/\b(morning|08:|09:|10:|11:)\b/.test(contextSignal)) return "in my morning focus window";
+  if (/\b(afternoon|13:|14:|15:|16:)\b/.test(contextSignal)) return "in my afternoon focus window";
+  if (/\b(evening|night|18:|19:|20:|21:)\b/.test(contextSignal)) return "in my evening focus window";
+  return "in my next focus window";
+}
+
+function parseSuggestedActions(prompts: unknown): SuggestedAction[] {
+  if (!Array.isArray(prompts)) return [];
+
+  const parsed: SuggestedAction[] = [];
+  for (const item of prompts) {
+    if (typeof item === "string") {
+      const text = item.trim();
+      if (!text) continue;
+      parsed.push({
+        text,
+        kind: text.includes("?") ? "question" : "action",
+      });
+      continue;
     }
+
+    if (!item || typeof item !== "object") continue;
+
+    const candidate = item as {
+      text?: unknown;
+      kind?: unknown;
+      estimatedMinutes?: unknown;
+    };
+
+    if (typeof candidate.text !== "string" || !candidate.text.trim()) continue;
+
+    const normalizedKind =
+      candidate.kind === "question" || candidate.kind === "action"
+        ? candidate.kind
+        : candidate.text.includes("?")
+        ? "question"
+        : "action";
+
+    const normalized: SuggestedAction = {
+      text: candidate.text.trim(),
+      kind: normalizedKind,
+    };
+
+    if (
+      normalizedKind === "action" &&
+      typeof candidate.estimatedMinutes === "number" &&
+      Number.isFinite(candidate.estimatedMinutes) &&
+      candidate.estimatedMinutes > 0
+    ) {
+      normalized.estimatedMinutes = Math.max(1, Math.round(candidate.estimatedMinutes));
+    }
+
+    parsed.push(normalized);
   }
 
-  if (result.length < 3) {
-    for (const prompt of fallbackCtas) {
-      if (result.length >= 3) break;
-      if (!result.some((existing) => existing.toLowerCase() === prompt.toLowerCase())) {
-        result.push(prompt);
-      }
-    }
-  }
-
-  return result.slice(0, 3);
+  return parsed;
 }
 
 function detectPreferredLanguage(signal: string): "tr" | "en" {

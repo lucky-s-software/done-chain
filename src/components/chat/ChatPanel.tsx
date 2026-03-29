@@ -5,7 +5,7 @@ import { MessageBubble } from "./MessageBubble";
 import { DayDivider } from "./DayDivider";
 import { ChatInput } from "./ChatInput";
 import { QuickActions } from "./QuickActions";
-import type { Message, ActionCard } from "@/types";
+import type { Message, ActionCard, SuggestedAction } from "@/types";
 
 interface ChatPanelProps {
   onDataChange?: () => void;
@@ -14,7 +14,9 @@ interface ChatPanelProps {
 export function ChatPanel({ onDataChange }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [composerValue, setComposerValue] = useState("");
+  const [composerFocusSignal, setComposerFocusSignal] = useState(0);
+  const [suggestions, setSuggestions] = useState<SuggestedAction[]>([]);
   const [memoriesBanner, setMemoriesBanner] = useState<number>(0);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [selectionFlow, setSelectionFlow] = useState<"actions" | "confirm_delete">("actions");
@@ -62,7 +64,7 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
       const memoriesCreated = typeof data?.memoriesCreated === "number" ? data.memoriesCreated : 0;
 
       if (!res.ok || !message) {
-        throw new Error(data?.error || "Failed to send message");
+        throw new Error(data?.details || data?.error || "Failed to send message");
       }
 
       // Replace optimistic message + add real user msg + assistant msg
@@ -71,7 +73,49 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
         return [...without, message];
       });
 
-      setSuggestions(Array.isArray(data.suggestedActions) ? data.suggestedActions.slice(0, 3) : []);
+      const normalizedSuggestions: SuggestedAction[] = Array.isArray(data.suggestedActions)
+        ? data.suggestedActions
+            .map((item: unknown): SuggestedAction | null => {
+              if (typeof item === "string") {
+                return {
+                  text: item,
+                  kind: item.includes("?") ? "question" : "action",
+                };
+              }
+
+              if (!item || typeof item !== "object") return null;
+              const candidate = item as {
+                text?: unknown;
+                kind?: unknown;
+                estimatedMinutes?: unknown;
+              };
+              if (typeof candidate.text !== "string" || !candidate.text.trim()) return null;
+
+              const normalized: SuggestedAction = {
+                text: candidate.text.trim(),
+                kind:
+                  candidate.kind === "question" || candidate.kind === "action"
+                    ? candidate.kind
+                    : candidate.text.includes("?")
+                    ? "question"
+                    : "action",
+              };
+
+              if (
+                normalized.kind === "action" &&
+                typeof candidate.estimatedMinutes === "number" &&
+                candidate.estimatedMinutes > 0
+              ) {
+                normalized.estimatedMinutes = Math.round(candidate.estimatedMinutes);
+              }
+
+              return normalized;
+            })
+            .filter((item: SuggestedAction | null): item is SuggestedAction => item !== null)
+            .slice(0, 3)
+        : [];
+
+      setSuggestions(normalizedSuggestions);
 
       if (memoriesCreated > 0) {
         setMemoriesBanner(memoriesCreated);
@@ -97,36 +141,20 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
   }, [onDataChange]);
 
   const handleQuickAction = useCallback((text: string) => {
-    if (text === "Summarize session") {
-      setLoading(true);
-      fetch("/api/summary", { method: "POST" })
-        .then((r) => r.json())
-        .then(async (data) => {
-          const histRes = await fetch("/api/messages?limit=50");
-          const histData = await histRes.json();
-          if (histData.messages) {
-            setMessages(histData.messages);
-          } else if (data.message) {
-            setMessages((prev) => [...prev, data.message]);
-          }
-          onDataChange?.();
-        })
-        .catch((err) => {
-          console.error("[summary quick action]", err);
-        })
-        .finally(() => {
-          setLoading(false);
-        });
-      return;
-    }
-
-    handleSend(text);
-  }, [handleSend, onDataChange]);
+    setComposerValue((prev) => (prev.trim() ? `${prev}\n${text}` : text));
+    setComposerFocusSignal((prev) => prev + 1);
+  }, []);
 
   const handleCardAction = useCallback(async (
     cardId: string,
     action: "approve" | "reject" | "dismiss",
-    edits?: { title?: string; dueAt?: string; tags?: string[] }
+    edits?: {
+      title?: string;
+      dueAt?: string | null;
+      tags?: string[];
+      estimatedMinutes?: number | null;
+      executionStartAt?: string | null;
+    }
   ) => {
     const res = await fetch(`/api/cards/${cardId}`, {
       method: "PATCH",
@@ -215,6 +243,9 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
     }
   }, [selectedMessageId, deleteCount, onDataChange]);
 
+  const menuItemClass =
+    "px-3.5 text-[11px] font-mono whitespace-nowrap transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed";
+
   return (
     <div className="flex flex-col h-full">
       {/* Memory banner */}
@@ -227,31 +258,31 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
 
       {/* Selection actions bar */}
       {selectedMessageId && (
-        <div className="px-4 py-2 bg-[var(--bg-tertiary)] border-b border-[var(--border)] text-xs font-mono flex items-center justify-between gap-3">
-          <span className="text-[var(--text-muted)]">
+        <div className="px-4 bg-[var(--bg-tertiary)] border-b border-[var(--border)] text-xs font-mono flex items-stretch justify-between gap-3 min-h-10">
+          <span className="text-[var(--text-muted)] flex items-center py-2">
             {selectionFlow === "confirm_delete"
               ? `${deleteCount} message${deleteCount !== 1 ? "s" : ""} will be deleted: confirm`
               : "Selected message actions"}
           </span>
-          <div className="flex gap-2">
+          <div className="flex self-stretch divide-x divide-[var(--border)] border-x border-[var(--border)] bg-[var(--bg-secondary)]">
             {selectionFlow === "confirm_delete" ? (
               <>
                 <button
                   onClick={handleBulkDelete}
                   disabled={deletingUpTo || deleteCount <= 0}
-                  className="text-red-500 hover:text-red-400 disabled:opacity-50"
+                  className={`${menuItemClass} text-[var(--danger)] bg-[var(--danger)]/12 hover:bg-[var(--danger)]/20`}
                 >
                   {deletingUpTo ? "Deleting…" : "Confirm"}
                 </button>
                 <button
                   onClick={() => setSelectionFlow("actions")}
-                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  className={`${menuItemClass} text-[var(--accent)] bg-[var(--accent)]/12 hover:bg-[var(--accent)]/20`}
                 >
                   Back
                 </button>
                 <button
                   onClick={() => setSelectedMessageId(null)}
-                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  className={`${menuItemClass} text-[var(--text-secondary)] bg-[var(--bg-primary)] hover:text-[var(--text-primary)]`}
                 >
                   Cancel
                 </button>
@@ -260,27 +291,27 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
               <>
                 <button
                   onClick={handleCopySingle}
-                  className="text-[var(--text-muted)] hover:text-[var(--accent)]"
+                  className={`${menuItemClass} text-[var(--info)] bg-[var(--info)]/12 hover:bg-[var(--info)]/20`}
                 >
                   Copy
                 </button>
                 <button
                   onClick={handleCopyStartingThis}
                   disabled={deleteCount <= 0}
-                  className="text-[var(--text-muted)] hover:text-[var(--accent)] disabled:opacity-50"
+                  className={`${menuItemClass} text-[var(--accent)] bg-[var(--accent)]/12 hover:bg-[var(--accent)]/20`}
                 >
                   Copy starting this
                 </button>
                 <button
                   onClick={() => setSelectionFlow("confirm_delete")}
                   disabled={deleteCount <= 0}
-                  className="text-red-500 hover:text-red-400 disabled:opacity-50"
+                  className={`${menuItemClass} text-[var(--danger)] bg-[var(--danger)]/12 hover:bg-[var(--danger)]/20`}
                 >
                   Delete starting this
                 </button>
                 <button
                   onClick={() => setSelectedMessageId(null)}
-                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  className={`${menuItemClass} text-[var(--text-secondary)] bg-[var(--bg-primary)] hover:text-[var(--text-primary)]`}
                 >
                   Cancel
                 </button>
@@ -344,7 +375,13 @@ export function ChatPanel({ onDataChange }: ChatPanelProps) {
       {/* Quick actions + input */}
       <div className="shrink-0">
         <QuickActions suggestions={suggestions} onSelect={handleQuickAction} />
-        <ChatInput onSend={handleSend} disabled={loading} />
+        <ChatInput
+          value={composerValue}
+          onValueChange={setComposerValue}
+          onSend={handleSend}
+          disabled={loading}
+          focusSignal={composerFocusSignal}
+        />
       </div>
     </div>
   );

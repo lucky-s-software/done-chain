@@ -15,7 +15,13 @@ interface ActionCardRendererProps {
   onAction: (
     cardId: string,
     action: CardAction,
-    edits?: { title?: string; dueAt?: string; tags?: string[] }
+    edits?: {
+      title?: string;
+      dueAt?: string | null;
+      tags?: string[];
+      estimatedMinutes?: number | null;
+      executionStartAt?: string | null;
+    }
   ) => Promise<void>;
 }
 
