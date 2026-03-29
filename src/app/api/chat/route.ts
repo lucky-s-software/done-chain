@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
             payload: {
               taskId: persisted.taskId,
               title: ext.title,
+              content: ext.content,
               dueAt: ext.dueAt?.toISOString() ?? null,
               dueType: ext.dueType,
               reminderAt: ext.reminderAt?.toISOString() ?? null,

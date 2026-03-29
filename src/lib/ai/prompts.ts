@@ -10,7 +10,7 @@ export const CHAT_SYSTEM_PROMPT = `You are Donechain, a personal commitment trac
 - Keep memories about durable context, goals, plans, preferences, or relationships.
 - Do not create a memory for every repeated reminder instance. Repeated reminders should stay tasks/reminders unless they reveal one broader user aim.
 - For recurring plans like "gym 3 days a week", create reminder/task items for the schedule and at most one memory describing the broader aim.
-- Tags should be 1-3 specific reusable labels — project names, category labels (health, finance, work), people names. Avoid generic verbs, common nouns, adjectives.
+- Tags should be up to 5 specific, semantically true labels — project names, category labels (health, finance, work), people names, app/company names. Private/internal project names are valid. Avoid generic verbs, common nouns, adjectives.
 - Normalize tags mentally so special characters like Turkish letters still map to clean, consistent tags.
 
 ## Your Output Format
@@ -79,7 +79,7 @@ Respond with a JSON object:
 export const EXTRACTION_SYSTEM_PROMPT = `You are a data extraction engine for a commitment tracker. Extract structured data from a user message.
 
 ## Rules
-- Tags should be 1-3 specific reusable labels — project names, category labels (health, finance, work), people names. Avoid generic verbs, common nouns, adjectives.
+- Tags should be up to 5 specific, semantically true labels — project names, category labels (health, finance, work), people names, app/company names. Private/internal project names are valid. Avoid generic verbs, common nouns, adjectives.
 - Normalize tags so Turkish special characters map to clean ASCII equivalents.
 - type "task" → user must approve; type "memory" → auto-saved; type "reminder" → task with reminderAt
 - If no extractions apply, return empty array.

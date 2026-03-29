@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { normalizeTags } from "@/lib/tags";
 
 export async function PATCH(
   req: NextRequest,
@@ -10,7 +11,7 @@ export async function PATCH(
     const body = await req.json();
     const { action, edits } = body as {
       action: "approve" | "reject" | "dismiss";
-      edits?: { title?: string; dueAt?: string; tags?: string[] };
+      edits?: { title?: string; dueAt?: string | null; tags?: string[] };
     };
 
     const card = await prisma.actionCard.findUnique({ where: { id } });
@@ -22,6 +23,7 @@ export async function PATCH(
 
     if (action === "approve") {
       if (card.cardType === "proposed_task") {
+        const normalizedTags = edits?.tags ? normalizeTags(edits.tags) : undefined;
         const payload = card.payload as {
           taskId: string;
           title?: string;
@@ -36,10 +38,24 @@ export async function PATCH(
             status: "active",
             approvalState: "approved",
             ...(edits?.title ? { title: edits.title } : {}),
-            ...(edits?.dueAt ? { dueAt: new Date(edits.dueAt) } : {}),
-            ...(edits?.tags ? { tags: JSON.stringify(edits.tags) } : {}),
+            ...(edits?.dueAt !== undefined
+              ? { dueAt: edits.dueAt ? new Date(edits.dueAt) : null }
+              : {}),
+            ...(normalizedTags !== undefined
+              ? { tags: JSON.stringify(normalizedTags) }
+              : {}),
           },
         });
+
+        if (normalizedTags) {
+          for (const tag of normalizedTags) {
+            await prisma.tag.upsert({
+              where: { name: tag },
+              update: {},
+              create: { name: tag },
+            });
+          }
+        }
 
         // Log credit
         await prisma.creditLedger.create({
