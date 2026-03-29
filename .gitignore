@@ -11,7 +11,7 @@
 # ===========================
 # PRE-BUILD ASSETS (private)
 # ===========================
-.pre/
+.pre
 
 # ===========================
 # DEPENDENCIES
@@ -72,3 +72,6 @@ Thumbs.db
 # ===========================
 .vercel
 .turbo
+.env
+dev.db
+dev.db-journal
