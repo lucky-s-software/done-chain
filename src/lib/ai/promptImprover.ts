@@ -33,7 +33,7 @@ ${indexText}`;
   const raw = await chatJson(
     PROMPT_IMPROVER_SYSTEM_PROMPT,
     [{ role: "user", content: userContent }],
-    { temperature: 0, max_tokens: 200 }
+    { mode: "analysis", temperature: 1, max_tokens: 200 }
   );
 
   let parsed: { selectedKnowledge?: string[]; enrichedContext?: string };

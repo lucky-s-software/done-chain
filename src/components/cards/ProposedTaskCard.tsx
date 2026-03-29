@@ -275,6 +275,13 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
       ) : (
         <div className="mb-2">
           <p className="text-[var(--text-primary)] text-sm font-mono mb-1">&quot;{payload.title}&quot;</p>
+          {payload.content &&
+            payload.content.trim() &&
+            payload.content.trim().toLowerCase() !== payload.title.trim().toLowerCase() && (
+              <p className="text-xs text-[var(--text-secondary)] mb-1.5 leading-relaxed">
+                {payload.content}
+              </p>
+            )}
           <div className="flex flex-wrap gap-1.5 text-xs text-[var(--text-muted)]">
             {payload.dueAt && (
               <span>

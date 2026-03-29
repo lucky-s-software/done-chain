@@ -33,7 +33,8 @@ export async function updateProfileFromConversation(
 
   const updatedContent = await chat(
     "You are a profile curator. Follow the instructions in the user message exactly.",
-    [{ role: "user", content: PROFILE_UPDATE_PROMPT(currentProfile, conversationExcerpt) }]
+    [{ role: "user", content: PROFILE_UPDATE_PROMPT(currentProfile, conversationExcerpt) }],
+    { mode: "analysis", temperature: 1 }
   );
 
   const trimmed = updatedContent.trim();

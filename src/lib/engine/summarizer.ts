@@ -56,7 +56,7 @@ export async function runSummarizationJob(): Promise<{
       role: "user",
       content: SUMMARY_USER_PROMPT(previousSummariesText, messagesText),
     },
-  ]);
+  ], { mode: "analysis", temperature: 1 });
 
   const cleaned = raw
     .replace(/```json\n?/g, "")

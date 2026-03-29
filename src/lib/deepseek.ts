@@ -9,6 +9,15 @@ const client = new OpenAI({
 interface ChatOptions {
   temperature?: number;
   max_tokens?: number;
+  mode?: "chat" | "analysis";
+}
+
+function resolveTemperature(options?: ChatOptions): number {
+  if (typeof options?.temperature === "number") {
+    return options.temperature;
+  }
+
+  return options?.mode === "analysis" ? 1 : 1.3;
 }
 
 export async function chat(
@@ -19,7 +28,7 @@ export async function chat(
   const response = await client.chat.completions.create({
     model: "deepseek-chat",
     messages: [{ role: "system", content: systemPrompt }, ...messages],
-    temperature: options?.temperature ?? 0.3,
+    temperature: resolveTemperature(options),
     max_tokens: options?.max_tokens ?? 2000,
   });
 
@@ -34,7 +43,7 @@ export async function chatJson(
   const response = await client.chat.completions.create({
     model: "deepseek-chat",
     messages: [{ role: "system", content: systemPrompt }, ...messages],
-    temperature: options?.temperature ?? 0.1,
+    temperature: resolveTemperature(options),
     max_tokens: options?.max_tokens ?? 1200,
     response_format: { type: "json_object" },
   });

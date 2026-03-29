@@ -41,7 +41,7 @@ export async function extractTagsWithAI({
         content: `Title: ${trimmedTitle || "(none)"}\nContext: ${trimmedContent || "(none)"}\nCurrent tags: ${(existingTags || []).join(", ") || "(none)"}`,
       },
     ],
-    { temperature: 0.1, max_tokens: 300 }
+    { mode: "analysis", temperature: 1, max_tokens: 300 }
   );
 
   let parsed: { tags?: unknown };

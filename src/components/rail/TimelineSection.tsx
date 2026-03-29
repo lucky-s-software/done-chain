@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import type { Task } from "@/types";
 import {
   formatDateKeyLabel,
@@ -25,10 +25,23 @@ interface TimedTask {
   source: "execution" | "due";
 }
 
+interface PendingMove {
+  taskId: string;
+  title: string;
+  executionStartAt: string;
+}
+
+const DROP_MINUTE_STEP = 5;
+
 function toTimeInputValue(date: Date, timezone: string): string {
   const parts = getDatePartsInTimeZone(date, timezone);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${pad(parts.hour)}:${pad(parts.minute)}`;
+}
+
+function toTimeValue(hour: number, minute: number): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(hour)}:${pad(minute)}`;
 }
 
 export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: TimelineSectionProps) {
@@ -40,8 +53,12 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [draftTime, setDraftTime] = useState("09:00");
   const [draftEstimate, setDraftEstimate] = useState("");
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [dropPreview, setDropPreview] = useState<{ hour: number; minute: number } | null>(null);
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const response = await fetch("/api/tasks?status=active,done");
       const data = await response.json();
@@ -51,16 +68,24 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     setSelectedDate(getDateKeyInTimeZone(new Date(), timezone));
+    setPendingMove(null);
+    setDropPreview(null);
+    setDraggingTaskId(null);
   }, [timezone]);
 
   useEffect(() => {
     setLoading(true);
     load();
-  }, [refreshPulse]);
+  }, [refreshPulse, load]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const { timedTasks, untimedTasks } = useMemo(() => {
     const timed: TimedTask[] = [];
@@ -113,6 +138,19 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
 
     return hourMap;
   }, [timedTasks]);
+
+  const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
+  const nowDate = useMemo(() => new Date(nowTick), [nowTick]);
+  const selectedIsToday = getDateKeyInTimeZone(nowDate, timezone) === selectedDate;
+  const nowMarker = useMemo(() => {
+    if (!selectedIsToday) return null;
+    const parts = getDatePartsInTimeZone(nowDate, timezone);
+    return {
+      hour: parts.hour,
+      minute: parts.minute,
+      label: formatTimeInTimeZone(nowDate, timezone),
+    };
+  }, [nowDate, selectedIsToday, timezone]);
 
   const patchTask = async (payload: Record<string, unknown>) => {
     setSaving(true);
@@ -169,6 +207,69 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
     await patchTask({ id: taskId, action: "complete" });
   };
 
+  const minuteFromDropEvent = (event: DragEvent<HTMLDivElement>): number => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const relativeY = event.clientY - bounds.top;
+    const ratio = Math.min(0.9999, Math.max(0, relativeY / Math.max(1, bounds.height)));
+    const minuteRaw = Math.floor((ratio * 60) / DROP_MINUTE_STEP) * DROP_MINUTE_STEP;
+    return Math.min(55, Math.max(0, minuteRaw));
+  };
+
+  const stageMove = (taskId: string, hour: number, minute: number) => {
+    const task = taskById.get(taskId);
+    if (!task || task.status !== "active") return;
+    const executionStartAt = zonedDateTimeToUtc(selectedDate, toTimeValue(hour, minute), timezone).toISOString();
+    setPendingMove({
+      taskId,
+      title: task.title,
+      executionStartAt,
+    });
+  };
+
+  const confirmMove = async () => {
+    if (!pendingMove) return;
+    await patchTask({
+      id: pendingMove.taskId,
+      edits: { executionStartAt: pendingMove.executionStartAt },
+    });
+    setPendingMove(null);
+  };
+
+  const cancelMove = () => {
+    setPendingMove(null);
+  };
+
+  const onTaskDragStart = (taskId: string, event: DragEvent<HTMLElement>) => {
+    if (saving) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", taskId);
+    setEditingTaskId(null);
+    setPendingMove(null);
+    setDraggingTaskId(taskId);
+  };
+
+  const onTaskDragEnd = () => {
+    setDraggingTaskId(null);
+    setDropPreview(null);
+  };
+
+  const onHourDragOver = (hour: number, event: DragEvent<HTMLDivElement>) => {
+    const id = draggingTaskId || event.dataTransfer.getData("text/plain");
+    if (!id || saving) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropPreview({ hour, minute: minuteFromDropEvent(event) });
+  };
+
+  const onHourDrop = (hour: number, event: DragEvent<HTMLDivElement>) => {
+    const id = draggingTaskId || event.dataTransfer.getData("text/plain");
+    setDraggingTaskId(null);
+    setDropPreview(null);
+    if (!id || saving) return;
+    event.preventDefault();
+    stageMove(id, hour, minuteFromDropEvent(event));
+  };
+
   if (loading) {
     return <div className="px-4 py-3 text-xs font-mono text-[var(--text-muted)]">loading timeline...</div>;
   }
@@ -220,19 +321,77 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
             onChange={(event) => setSelectedDate(event.target.value)}
           />
         )}
+        <p className="mt-2 text-[10px] font-mono text-[var(--text-muted)]">
+          Drag active tasks into a time slot to reschedule. Confirmation is required.
+        </p>
       </div>
+
+      {pendingMove && (
+        <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--accent-soft)]/50">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono">
+            <span className="text-[var(--text-secondary)]">
+              Move &quot;{pendingMove.title}&quot; to{" "}
+              <span className="text-[var(--accent)]">
+                {formatTimeInTimeZone(new Date(pendingMove.executionStartAt), timezone)}
+              </span>{" "}
+              on {formatDateKeyLabel(selectedDate, timezone)}?
+            </span>
+            <span className="text-[var(--text-muted)]">Execution time only (due date unchanged).</span>
+            <button
+              type="button"
+              onClick={confirmMove}
+              disabled={saving}
+              className="ml-auto px-2 py-1 border border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)]/10"
+            >
+              Confirm
+            </button>
+            <button
+              type="button"
+              onClick={cancelMove}
+              className="px-2 py-1 border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="border-b border-[var(--border)]">
         {Array.from({ length: 24 }).map((_, hour) => {
           const hourTasks = timedByHour.get(hour) ?? [];
           const hourLabel = String(hour).padStart(2, "0") + ":00";
+          const isDropTarget = dropPreview?.hour === hour;
+          const dropPreviewTime =
+            isDropTarget && dropPreview
+              ? formatTimeInTimeZone(
+                  zonedDateTimeToUtc(selectedDate, toTimeValue(hour, dropPreview.minute), timezone),
+                  timezone
+                )
+              : null;
 
           return (
-            <div key={hour} className="flex border-b last:border-b-0 border-[var(--border)]/60">
+            <div
+              key={hour}
+              className={`flex border-b last:border-b-0 border-[var(--border)]/60 ${
+                isDropTarget ? "bg-[var(--accent-soft)]/40" : ""
+              }`}
+            >
               <div className="w-14 shrink-0 px-2 py-2 text-[10px] font-mono text-[var(--text-muted)] border-r border-[var(--border)]/60">
                 {hourLabel}
+                {nowMarker?.hour === hour && (
+                  <span className="ml-1 text-[var(--danger)]">• now</span>
+                )}
               </div>
-              <div className="flex-1 min-h-10 px-2 py-1.5 space-y-1">
+              <div
+                className="relative flex-1 min-h-10 px-2 py-1.5 space-y-1"
+                onDragOver={(event) => onHourDragOver(hour, event)}
+                onDrop={(event) => onHourDrop(hour, event)}
+              >
+                {isDropTarget && dropPreviewTime && (
+                  <p className="absolute right-2 top-1 text-[9px] font-mono text-[var(--accent)] pointer-events-none">
+                    drop at {dropPreviewTime}
+                  </p>
+                )}
                 {hourTasks.map((item) => (
                   <div
                     key={item.task.id}
@@ -240,7 +399,10 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
                       item.task.status === "done"
                         ? "border-[var(--border)] text-[var(--text-muted)] bg-[var(--bg-tertiary)]/20"
                         : "border-[var(--accent)]/30 bg-[var(--accent-soft)]"
-                    }`}
+                    } ${item.task.status === "active" ? "cursor-grab active:cursor-grabbing" : ""}`}
+                    draggable={item.task.status === "active"}
+                    onDragStart={(event) => onTaskDragStart(item.task.id, event)}
+                    onDragEnd={onTaskDragEnd}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
@@ -326,6 +488,18 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
                     )}
                   </div>
                 ))}
+                {nowMarker?.hour === hour && (
+                  <div
+                    className="pointer-events-none absolute inset-x-1 z-10"
+                    style={{ top: `${(nowMarker.minute / 60) * 100}%` }}
+                  >
+                    <div className="relative h-px bg-[var(--danger)]">
+                      <span className="absolute -top-2 left-0 bg-[var(--bg-secondary)] px-1 text-[9px] font-mono text-[var(--danger)]">
+                        {nowMarker.label}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -345,7 +519,15 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
         ) : (
           <ul className="divide-y divide-[var(--border)]">
             {untimedTasks.map((task) => (
-              <li key={task.id} className="px-4 py-2.5">
+              <li
+                key={task.id}
+                className={`px-4 py-2.5 ${
+                  task.status === "active" ? "cursor-grab active:cursor-grabbing" : ""
+                }`}
+                draggable={task.status === "active"}
+                onDragStart={(event) => onTaskDragStart(task.id, event)}
+                onDragEnd={onTaskDragEnd}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className={`text-sm truncate ${task.status === "done" ? "line-through text-[var(--text-muted)]" : "text-[var(--text-primary)]"}`}>

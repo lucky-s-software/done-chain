@@ -86,12 +86,22 @@ async function singleLayerPipeline(
     parsed = { reply: raw || "Got it.", extractions: [], followUpQuestions: [], suggestedActions: [] };
   }
 
-  const followUpQuestions = normalizeFollowUpQuestions(parsed.followUpQuestions, userContent, parsed.extractions || []);
+  const followUpQuestions = normalizeFollowUpQuestions(
+    parsed.followUpQuestions,
+    userContent,
+    parsed.extractions || [],
+    attentionContext
+  );
   const reply = buildReply(parsed.reply || "I understood that, but couldn't extract anything specific.", followUpQuestions);
+  const normalizedExtractions = finalizeExtractions(
+    userContent,
+    attentionContext,
+    (parsed.extractions || []).map(normalizeExtraction)
+  );
 
   return {
     reply,
-    extractions: inferMemoryFromTasks((parsed.extractions || []).map(normalizeExtraction)),
+    extractions: normalizedExtractions,
     followUpQuestions,
     suggestedActions: normalizeSuggestedActions(parsed.suggestedActions, reply, userContent, attentionContext),
   };
@@ -122,7 +132,8 @@ async function twoLayerPipeline(
 
   // Layer 1: conversational reply
   const rawReply = await chatJson(replySystemPrompt, conversationMessages, {
-    temperature: 0.4,
+    mode: "chat",
+    temperature: 1.3,
     max_tokens: 800,
   });
 
@@ -140,7 +151,7 @@ async function twoLayerPipeline(
   const rawExtraction = await chatJson(
     extractionSystemPrompt,
     [{ role: "user", content: extractionUserMessage }],
-    { temperature: 0.1, max_tokens: 1200 }
+    { mode: "analysis", temperature: 1, max_tokens: 1200 }
   );
 
   let layer2: { extractions?: RawExtraction[] };
@@ -150,15 +161,35 @@ async function twoLayerPipeline(
     layer2 = { extractions: [] };
   }
 
-  const followUpQuestions = normalizeFollowUpQuestions(layer1.followUpQuestions, userContent, layer2.extractions || []);
+  const followUpQuestions = normalizeFollowUpQuestions(
+    layer1.followUpQuestions,
+    userContent,
+    layer2.extractions || [],
+    attentionContext
+  );
   const reply = buildReply(layer1.reply || "Got it.", followUpQuestions);
+  const normalizedExtractions = finalizeExtractions(
+    userContent,
+    attentionContext,
+    (layer2.extractions || []).map(normalizeExtraction)
+  );
 
   return {
     reply,
-    extractions: inferMemoryFromTasks((layer2.extractions || []).map(normalizeExtraction)),
+    extractions: normalizedExtractions,
     followUpQuestions,
     suggestedActions: normalizeSuggestedActions(layer1.suggestedActions, reply, userContent, attentionContext),
   };
+}
+
+function finalizeExtractions(
+  userContent: string,
+  attentionContext: string,
+  extracted: NormalizedExtraction[]
+): NormalizedExtraction[] {
+  const withInferredMemories = inferMemoryFromTasks(extracted);
+  const bootstrap = inferProfileBootstrapMemories(userContent, attentionContext, withInferredMemories);
+  return inferMemoryFromTasks([...withInferredMemories, ...bootstrap]);
 }
 
 function normalizeExtraction(ext: RawExtraction): NormalizedExtraction {
@@ -185,21 +216,33 @@ function normalizeExtraction(ext: RawExtraction): NormalizedExtraction {
 function normalizeFollowUpQuestions(
   questions: string[] | undefined,
   userContent: string,
-  extractions: RawExtraction[]
+  extractions: RawExtraction[],
+  attentionContext: string
 ): string[] {
+  const language = detectPreferredLanguage(`${userContent}\n${attentionContext}`);
   const cleaned = (questions || [])
     .map((question) => question.trim())
     .filter(Boolean)
     .slice(0, 3);
 
   if (cleaned.length > 0) return cleaned;
-  if (!needsFallbackClarification(userContent, extractions)) return [];
+  if (needsFallbackClarification(userContent, extractions)) {
+    return language === "tr"
+      ? [
+          "Tam olarak neyi takip etmemi istersin?",
+          "Bu ne zaman olmalı?",
+          "Eklememi istediğin önemli bir detay var mı?",
+        ]
+      : [
+          "What exactly should I track?",
+          "When should this happen?",
+          "Anything important I should attach to it?",
+        ];
+  }
 
-  return [
-    "What exactly should I track?",
-    "When should this happen?",
-    "Anything important I should attach to it?",
-  ];
+  const profileQuestion = inferProfileFollowUpQuestion(userContent, attentionContext, language, extractions);
+  if (!profileQuestion) return [];
+  return [profileQuestion];
 }
 
 function needsFallbackClarification(userContent: string, extractions: RawExtraction[]): boolean {
@@ -223,6 +266,107 @@ function buildReply(reply: string, followUpQuestions: string[]): string {
   if (alreadyIncludesQuestion) return reply;
 
   return `${reply}\n\n${followUpQuestions.map((question, index) => `${index + 1}. ${question}`).join("\n")}`;
+}
+
+function inferProfileBootstrapMemories(
+  userContent: string,
+  attentionContext: string,
+  extracted: NormalizedExtraction[]
+): NormalizedExtraction[] {
+  const hasMemory = extracted.some((item) => item.type === "memory");
+  if (hasMemory) return [];
+
+  const trimmed = userContent.trim();
+  if (trimmed.split(/\s+/).length < 18) return [];
+
+  const bootstrapped: NormalizedExtraction[] = [];
+
+  const projectMatch =
+    trimmed.match(/\b(?:named|called)\s+([A-Z][\w-]{2,})/i) ??
+    trimmed.match(/\b([A-Z][\w-]{2,})\s*[-–—]\s*(?:platform|app|product|project)/i);
+  const projectName = projectMatch?.[1] ?? null;
+
+  const collaboratorMatch = trimmed.match(/\bwith my (?:brother|sister|cofounder|co-founder|partner)\s+([A-Z][a-z]{1,})\b/i);
+  const collaborator = collaboratorMatch?.[1] ?? null;
+
+  if (projectName || collaborator) {
+    const relationNote = collaborator ? ` with ${collaborator}` : "";
+    const projectNote = projectName ? ` on ${projectName}` : "";
+    bootstrapped.push({
+      type: "memory",
+      title: projectName ? `Project context: ${projectName}` : "Collaboration context",
+      content: `User is building a side project${projectNote}${relationNote}.`,
+      dueAt: null,
+      dueType: null,
+      reminderAt: null,
+      estimatedMinutes: null,
+      executionStartAt: null,
+      tags: [projectName, "side-project", collaborator].filter((item): item is string => Boolean(item)),
+      person: collaborator,
+      confidence: 0.82,
+    });
+  }
+
+  const focusWindowMatches = Array.from(
+    trimmed.matchAll(/\b(\d{1,2}(?::\d{2})?\s?(?:am|pm))\s*[-–—]\s*(\d{1,2}(?::\d{2})?\s?(?:am|pm))\b/gi)
+  )
+    .map((match) => `${match[1]}-${match[2]}`)
+    .slice(0, 3);
+
+  const profileIsSparse = !/## User Profile/i.test(attentionContext);
+  if (focusWindowMatches.length > 0 && profileIsSparse) {
+    bootstrapped.push({
+      type: "memory",
+      title: "Preferred focus windows",
+      content: `User prefers focus windows around ${focusWindowMatches.join(", ")}.`,
+      dueAt: null,
+      dueType: null,
+      reminderAt: null,
+      estimatedMinutes: null,
+      executionStartAt: null,
+      tags: ["focus-window", "planning"],
+      person: null,
+      confidence: 0.86,
+    });
+  }
+
+  return bootstrapped.slice(0, 2);
+}
+
+function inferProfileFollowUpQuestion(
+  userContent: string,
+  attentionContext: string,
+  language: "tr" | "en",
+  extractions: RawExtraction[]
+): string | null {
+  const hasProfileSection = /## User Profile/i.test(attentionContext);
+  const profileLength = attentionContext.match(/## User Profile\s+([\s\S]*?)(?:\n##|$)/i)?.[1]?.trim().length ?? 0;
+  const sparseProfile = !hasProfileSection || profileLength < 80;
+  const substantialInput = userContent.trim().split(/\s+/).length >= 16;
+  const hasTaskLikeExtraction = extractions.some((item) => item.type === "task" || item.type === "reminder");
+  const hasMemoryExtraction = extractions.some((item) => item.type === "memory");
+
+  if (sparseProfile && substantialInput && hasTaskLikeExtraction && !hasMemoryExtraction) {
+    return language === "tr"
+      ? "Bu planların yanında, bu dönemde ana önceliğin hangi proje?"
+      : "Alongside these plans, which project is your main priority this period?";
+  }
+
+  if (!sparseProfile && substantialInput && (hashSignal(userContent) % 9 === 0)) {
+    return language === "tr"
+      ? "Kısaca: En verimli çalıştığın saatler hangileri?"
+      : "Quick one: what hours do you usually do your best focused work?";
+  }
+
+  return null;
+}
+
+function hashSignal(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) % 100000;
+  }
+  return hash;
 }
 
 function normalizeSuggestedActions(

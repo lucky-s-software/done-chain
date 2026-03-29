@@ -10,7 +10,7 @@ import {
   resolveClarification,
   deriveTopicKey,
 } from "@/lib/ai/clarification";
-import { getProfile } from "@/lib/engine/profile";
+import { getProfile, updateProfileFromConversation } from "@/lib/engine/profile";
 import { runPromptImprover } from "@/lib/ai/promptImprover";
 
 export async function POST(req: NextRequest) {
@@ -134,6 +134,17 @@ export async function POST(req: NextRequest) {
         credits: 1 + extractions.length,
       },
     });
+
+    const shouldRefreshProfile =
+      !profile ||
+      content.trim().split(/\s+/).length >= 16 ||
+      extractions.some((item) => item.type === "memory");
+    if (shouldRefreshProfile) {
+      const excerpt = `[USER]: ${content}\n[ASSISTANT]: ${reply}`;
+      await updateProfileFromConversation(excerpt).catch((error) =>
+        console.warn("[chat] profile refresh failed:", error)
+      );
+    }
 
     // 7. Return full response with action cards
     const fullMessage = await prisma.message.findUnique({
