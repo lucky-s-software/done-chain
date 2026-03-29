@@ -1,0 +1,216 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// LAYER 1: EPHEMERAL
+// ============================================
+
+model Message {
+  id              String    @id @default(cuid())
+  role            Role
+  content         String
+  actionCards     ActionCard[]
+  createdAt       DateTime  @default(now())
+  expired         Boolean   @default(false)
+  extractedEntries Entry[]  @relation("SourceMessage")
+}
+
+enum Role {
+  user
+  assistant
+  system
+}
+
+model ConversationSummary {
+  id          String   @id @default(cuid())
+  summary     String
+  periodStart DateTime
+  periodEnd   DateTime
+  tags        String[]
+  createdAt   DateTime @default(now())
+}
+
+// ============================================
+// LAYER 2: DISTILLED (AI Memory)
+// ============================================
+
+model Entry {
+  id              String      @id @default(cuid())
+  content         String
+  source          EntrySource
+  sourceMessageId String?
+  sourceMessage   Message?    @relation("SourceMessage", fields: [sourceMessageId], references: [id])
+  tags            String[]
+  projectId       String?
+  project         Project?    @relation(fields: [projectId], references: [id])
+  personId        String?
+  person          Person?     @relation(fields: [personId], references: [id])
+  pinned          Boolean     @default(false)
+  reviewed        Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  spawnedTasks    Task[]      @relation("SourceEntry")
+}
+
+enum EntrySource {
+  ai_extracted
+  user_created
+  summary
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+model Project {
+  id        String        @id @default(cuid())
+  name      String
+  status    ProjectStatus @default(active)
+  entries   Entry[]
+  tasks     Task[]
+  createdAt DateTime      @default(now())
+}
+
+enum ProjectStatus {
+  active
+  archived
+}
+
+model Person {
+  id        String   @id @default(cuid())
+  name      String
+  context   String?
+  entries   Entry[]
+  tasks     Task[]
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// LAYER 3: COMMITTED (User-Approved)
+// ============================================
+
+model Task {
+  id              String        @id @default(cuid())
+  title           String
+  status          TaskStatus    @default(proposed)
+  approvalState   ApprovalState @default(pending)
+  dueAt           DateTime?
+  dueType         DueType?
+  reminderAt      DateTime?
+  sourceEntryId   String?
+  sourceEntry     Entry?        @relation("SourceEntry", fields: [sourceEntryId], references: [id])
+  tags            String[]
+  projectId       String?
+  project         Project?      @relation(fields: [projectId], references: [id])
+  personId        String?
+  person          Person?       @relation(fields: [personId], references: [id])
+  createdAt       DateTime      @default(now())
+  completedAt     DateTime?
+}
+
+enum TaskStatus {
+  proposed
+  active
+  done
+  cancelled
+}
+
+enum ApprovalState {
+  pending
+  approved
+  rejected
+}
+
+enum DueType {
+  soft
+  hard
+}
+
+// ============================================
+// ACTION CARDS (Chat UI Components)
+// ============================================
+
+model ActionCard {
+  id          String         @id @default(cuid())
+  messageId   String
+  message     Message        @relation(fields: [messageId], references: [id])
+  cardType    ActionCardType
+  payload     Json
+  status      CardStatus     @default(pending)
+  createdAt   DateTime       @default(now())
+  resolvedAt  DateTime?
+}
+
+enum ActionCardType {
+  proposed_task
+  proposed_memory
+  confirm_commitment
+  suggestion
+  clarification
+  summary_notice
+}
+
+enum CardStatus {
+  pending
+  approved
+  rejected
+  dismissed
+}
+
+// ============================================
+// LAYER 4: SYSTEM
+// ============================================
+
+model DailyClosure {
+  id              String        @id @default(cuid())
+  date            DateTime      @unique @db.Date
+  dueCount        Int           @default(0)
+  completedCount  Int           @default(0)
+  snoozedCount    Int           @default(0)
+  missedCount     Int           @default(0)
+  closureStatus   ClosureStatus @default(missed)
+  chainDay        Int           @default(0)
+}
+
+enum ClosureStatus {
+  clean
+  partial
+  missed
+}
+
+model CreditLedger {
+  id          String      @id @default(cuid())
+  eventType   CreditEvent
+  credits     Int
+  createdAt   DateTime    @default(now())
+}
+
+enum CreditEvent {
+  parse
+  summary
+  reminder_gen
+  search
+}
+
+model SummaryJob {
+  id          String    @id @default(cuid())
+  status      JobStatus @default(pending)
+  periodStart DateTime
+  periodEnd   DateTime
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+}
+
+enum JobStatus {
+  pending
+  running
+  completed
+  failed
+}
