@@ -2,6 +2,7 @@ import { chatJson } from "@/lib/deepseek";
 import { PROMPT_IMPROVER_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { getKnowledgeIndex, getKnowledgeContent } from "@/lib/ai/knowledge";
 import type { KnowledgeMeta } from "@/lib/ai/knowledge";
+import type { DeepSeekUsage } from "@/lib/deepseek";
 
 interface PromptImproverResult {
   selectedKnowledge: string[];
@@ -11,7 +12,8 @@ interface PromptImproverResult {
 
 export async function runPromptImprover(
   userMessage: string,
-  profileSummary: string
+  profileSummary: string,
+  onUsage?: (usage: DeepSeekUsage) => void
 ): Promise<PromptImproverResult> {
   const index: KnowledgeMeta[] = await getKnowledgeIndex();
 
@@ -33,7 +35,13 @@ ${indexText}`;
   const raw = await chatJson(
     PROMPT_IMPROVER_SYSTEM_PROMPT,
     [{ role: "user", content: userContent }],
-    { mode: "analysis", temperature: 1, max_tokens: 200 }
+    {
+      mode: "analysis",
+      temperature: 1,
+      max_tokens: 200,
+      stage: "prompt_improver",
+      onUsage,
+    }
   );
 
   let parsed: { selectedKnowledge?: string[]; enrichedContext?: string };

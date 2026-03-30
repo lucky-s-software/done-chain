@@ -12,9 +12,11 @@ import {
 } from "@/lib/ai/clarification";
 import { getProfile, updateProfileFromConversation } from "@/lib/engine/profile";
 import { runPromptImprover } from "@/lib/ai/promptImprover";
+import { createAiUsageCollector } from "@/lib/ai/usageTelemetry";
 
 export async function POST(req: NextRequest) {
   try {
+    const aiUsage = createAiUsageCollector();
     const { content } = await req.json();
 
     if (!content?.trim()) {
@@ -34,7 +36,11 @@ export async function POST(req: NextRequest) {
     });
 
     // 2a. Run prompt improver (knowledge selection + intent enrichment)
-    const { knowledgeContent, enrichedContext } = await runPromptImprover(content, profile).catch(
+    const { knowledgeContent, enrichedContext } = await runPromptImprover(
+      content,
+      profile,
+      aiUsage.push
+    ).catch(
       () => ({ knowledgeContent: "", enrichedContext: "" })
     );
 
@@ -57,7 +63,8 @@ export async function POST(req: NextRequest) {
         role,
         content: messageContent,
       })),
-      clarificationState !== "none" ? topicKey : undefined
+      clarificationState !== "none" ? topicKey : undefined,
+      aiUsage.push
     );
 
     // Update clarification state based on follow-up questions in response
@@ -151,12 +158,15 @@ export async function POST(req: NextRequest) {
       where: { id: assistantMessage.id },
       include: { actionCards: true },
     });
+    const aiUsageReport = aiUsage.report();
+    console.info("[chat] deepseek usage", aiUsageReport);
 
     return NextResponse.json({
       message: fullMessage,
       memoriesCreated,
       followUpQuestions,
       suggestedActions,
+      aiUsage: aiUsageReport,
     });
   } catch (err) {
     console.error("[chat] error:", err);

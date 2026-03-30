@@ -62,6 +62,23 @@ export interface SuggestedAction {
   estimatedMinutes?: number;
 }
 
+export interface AiUsageSummary {
+  requestCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  promptCacheHitTokens: number;
+  promptCacheMissTokens: number;
+  cacheHitRate: number;
+  totalLatencyMs: number;
+  avgLatencyMs: number;
+}
+
+export interface AiUsageReport {
+  totals: AiUsageSummary;
+  byStage: Record<string, AiUsageSummary>;
+}
+
 export interface Entry {
   id: string;
   content: string;
@@ -114,6 +131,7 @@ export interface ChatResponse {
   memoriesCreated: number;
   followUpQuestions?: string[];
   suggestedActions?: SuggestedAction[];
+  aiUsage?: AiUsageReport;
 }
 
 export interface CardActionResponse {

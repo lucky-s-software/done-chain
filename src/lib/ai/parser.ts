@@ -15,6 +15,7 @@ import type {
   DueType,
   SuggestedAction,
 } from "@/types";
+import type { DeepSeekUsage } from "@/lib/deepseek";
 
 const USE_TWO_LAYER_AI = process.env.USE_TWO_LAYER_AI === "true";
 
@@ -22,13 +23,26 @@ export async function parseUserMessage(
   userContent: string,
   attentionContext: string,
   recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[] = [],
-  clarificationTopicKey?: string
+  clarificationTopicKey?: string,
+  onUsage?: (usage: DeepSeekUsage) => void
 ): Promise<ParseResult> {
   try {
     if (USE_TWO_LAYER_AI) {
-      return twoLayerPipeline(userContent, attentionContext, recentConversationHistory, clarificationTopicKey);
+      return twoLayerPipeline(
+        userContent,
+        attentionContext,
+        recentConversationHistory,
+        clarificationTopicKey,
+        onUsage
+      );
     }
-    return singleLayerPipeline(userContent, attentionContext, recentConversationHistory, clarificationTopicKey);
+    return singleLayerPipeline(
+      userContent,
+      attentionContext,
+      recentConversationHistory,
+      clarificationTopicKey,
+      onUsage
+    );
   } catch (err) {
     console.error("[parser] pipeline error:", err);
     const language = detectPreferredLanguage(`${userContent}\n${attentionContext}`);
@@ -48,7 +62,8 @@ async function singleLayerPipeline(
   userContent: string,
   attentionContext: string,
   recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[],
-  clarificationTopicKey?: string
+  clarificationTopicKey?: string,
+  onUsage?: (usage: DeepSeekUsage) => void
 ): Promise<ParseResult> {
   let extraInstruction = "";
   if (clarificationTopicKey) {
@@ -66,7 +81,11 @@ async function singleLayerPipeline(
       ? recentConversationHistory
       : [{ role: "user" as const, content: userContent }];
 
-  const raw = await chat(systemPrompt, conversationMessages);
+  const raw = await chat(systemPrompt, conversationMessages, {
+    mode: "chat",
+    stage: "parser_single",
+    onUsage,
+  });
 
   // DeepSeek may wrap JSON in markdown code blocks — strip them
   const cleaned = raw
@@ -111,7 +130,8 @@ async function twoLayerPipeline(
   userContent: string,
   attentionContext: string,
   recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[],
-  clarificationTopicKey?: string
+  clarificationTopicKey?: string,
+  onUsage?: (usage: DeepSeekUsage) => void
 ): Promise<ParseResult> {
   let extraInstruction = "";
   if (clarificationTopicKey) {
@@ -135,6 +155,8 @@ async function twoLayerPipeline(
     mode: "chat",
     temperature: 1.3,
     max_tokens: 800,
+    stage: "parser_reply",
+    onUsage,
   });
 
   let layer1: { reply?: string; intent?: string; followUpQuestions?: string[]; suggestedActions?: unknown };
@@ -151,7 +173,13 @@ async function twoLayerPipeline(
   const rawExtraction = await chatJson(
     extractionSystemPrompt,
     [{ role: "user", content: extractionUserMessage }],
-    { mode: "analysis", temperature: 1, max_tokens: 1200 }
+    {
+      mode: "analysis",
+      temperature: 1,
+      max_tokens: 1200,
+      stage: "parser_extraction",
+      onUsage,
+    }
   );
 
   let layer2: { extractions?: RawExtraction[] };
