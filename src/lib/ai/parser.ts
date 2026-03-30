@@ -66,12 +66,8 @@ export async function parseUserMessage(
     );
   } catch (err) {
     console.error("[parser] pipeline error:", err);
-    const language = detectPreferredLanguage(`${userContent}\n${attentionContext}`);
     return {
-      reply:
-        language === "tr"
-          ? "Mesajını aldım. AI tarafında geçici bir sorun var, ama devam edebiliriz."
-          : "I got your message. There is a temporary AI issue right now, but we can continue.",
+      reply: "I got your message. There is a temporary AI issue right now, but we can continue.",
       extractions: [],
       followUpQuestions: [],
       suggestedActions: normalizeSuggestedActions([], "", userContent, attentionContext),
@@ -397,7 +393,6 @@ function normalizeFollowUpQuestions(
   extractions: RawExtraction[],
   attentionContext: string
 ): string[] {
-  const language = detectPreferredLanguage(`${userContent}\n${attentionContext}`);
   const cleaned = (questions || [])
     .map((question) => question.trim())
     .filter(Boolean)
@@ -405,20 +400,14 @@ function normalizeFollowUpQuestions(
 
   if (cleaned.length > 0) return cleaned;
   if (needsFallbackClarification(userContent, extractions)) {
-    return language === "tr"
-      ? [
-          "Tam olarak neyi takip etmemi istersin?",
-          "Bu ne zaman olmalı?",
-          "Eklememi istediğin önemli bir detay var mı?",
-        ]
-      : [
-          "What exactly should I track?",
-          "When should this happen?",
-          "Anything important I should attach to it?",
-        ];
+    return [
+      "What exactly should I track?",
+      "When should this happen?",
+      "Anything important I should attach to it?",
+    ];
   }
 
-  const profileQuestion = inferProfileFollowUpQuestion(userContent, attentionContext, language, extractions);
+  const profileQuestion = inferProfileFollowUpQuestion(userContent, attentionContext, extractions);
   if (!profileQuestion) return [];
   return [profileQuestion];
 }
@@ -514,7 +503,6 @@ function inferProfileBootstrapMemories(
 function inferProfileFollowUpQuestion(
   userContent: string,
   attentionContext: string,
-  language: "tr" | "en",
   extractions: RawExtraction[]
 ): string | null {
   const hasProfileSection = /## User Profile/i.test(attentionContext);
@@ -525,15 +513,11 @@ function inferProfileFollowUpQuestion(
   const hasMemoryExtraction = extractions.some((item) => item.type === "memory");
 
   if (sparseProfile && substantialInput && hasTaskLikeExtraction && !hasMemoryExtraction) {
-    return language === "tr"
-      ? "Bu planların yanında, bu dönemde ana önceliğin hangi proje?"
-      : "Alongside these plans, which project is your main priority this period?";
+    return "Alongside these plans, which project is your main priority this period?";
   }
 
   if (!sparseProfile && substantialInput && (hashSignal(userContent) % 9 === 0)) {
-    return language === "tr"
-      ? "Kısaca: En verimli çalıştığın saatler hangileri?"
-      : "Quick one: what hours do you usually do your best focused work?";
+    return "Quick one: what hours do you usually do your best focused work?";
   }
 
   return null;
@@ -553,59 +537,34 @@ function normalizeSuggestedActions(
   userContent: string,
   attentionContext: string
 ): SuggestedAction[] {
-  const preferredLanguage = detectPreferredLanguage(`${userContent}\n${reply}\n${attentionContext}`);
-  const contextSignal = `${reply} ${userContent} ${attentionContext}`.toLocaleLowerCase(
-    preferredLanguage === "tr" ? "tr-TR" : "en-US"
-  );
+  const contextSignal = `${reply} ${userContent} ${attentionContext}`.toLowerCase();
   const parsedPrompts = parseSuggestedActions(prompts)
     .map((prompt) => prompt.text.trim())
     .filter((text) => text.length >= 16);
 
-  const questionCandidate = parsedPrompts.find((text) => {
-    if (preferredLanguage === "tr") {
-      return /\?/.test(text) && /\b(bana|bizim|şu an|genel|durum|tıkan|sorun|pain)\b/i.test(text);
-    }
-    return /\?/.test(text) && /\b(can you|could you|overview|pain point|bottleneck|current)\b/i.test(text);
-  });
+  const questionCandidate = parsedPrompts.find((text) => /\?/.test(text));
 
-  const focusWindow = inferFocusWindowLabel(contextSignal, preferredLanguage);
-  const hasOverdueContext = /\b(overdue|behind|late|missed|slipped|past due|gecik|sarkt|ertele|kaçırd|kaçirdi|vadesi geçti)\b/.test(
+  const focusWindow = inferFocusWindowLabel(contextSignal);
+  const hasOverdueContext = /\b(overdue|behind|late|missed|slipped|past due)\b/.test(contextSignal);
+
+  const fallbackQuestion = "Can you give me a quick view of my current commitments and biggest pain points right now?";
+
+  const hasTaskUpdateSignal = /\b(update|reschedule|postpone|move|change|deadline|due|task update|edit task)\b/.test(
+    contextSignal
+  );
+  const hasTaskCreationSignal = /\b(add task|new task|todo|to-do|need to|i should|i have to|remind me)\b/.test(
     contextSignal
   );
 
-  const fallbackQuestion =
-    preferredLanguage === "tr"
-      ? "Mevcut taahhütlerimin genel görünümünü ve şu anki en büyük tıkanmaları çıkarır mısın?"
-      : "Can you give me a quick view of my current commitments and biggest pain points right now?";
+  const planningStarter = hasTaskUpdateSignal
+    ? "I need to update this task: ... Help me turn that into a clear task update proposal."
+    : hasTaskCreationSignal
+    ? "I want to add this as a new task: ... Can you suggest a title, duration, and due date?"
+    : `I am planning to ... ${focusWindow}. Help me expand this into realistic first steps.`;
 
-  const hasTaskUpdateSignal = /\b(update|reschedule|postpone|move|change|deadline|due|task update|edit task|guncelle|güncelle|ertele|tarih|vade|plani degistir|planı değiştir)\b/.test(
-    contextSignal
-  );
-  const hasTaskCreationSignal = /\b(add task|new task|todo|to-do|need to|i should|i have to|remind me|gorev ekle|görev ekle|yapmaliyim|yapmalıyım)\b/.test(
-    contextSignal
-  );
-
-  const planningStarter =
-    preferredLanguage === "tr"
-      ? hasTaskUpdateSignal
-        ? "Şu görevi güncellemem gerekiyor: ... Bunu net bir task update önerisine dönüştürür müsün?"
-        : hasTaskCreationSignal
-        ? "Bunu yeni bir görev olarak eklemek istiyorum: ... Başlık, süre ve tarih önerisi çıkarır mısın?"
-        : `Şunu ${focusWindow} planlıyorum: ... Bunu gerçekçi ilk adımlara genişletmeme yardım eder misin?`
-      : hasTaskUpdateSignal
-      ? "I need to update this task: ... Help me turn that into a clear task update proposal."
-      : hasTaskCreationSignal
-      ? "I want to add this as a new task: ... Can you suggest a title, duration, and due date?"
-      : `I am planning to ... ${focusWindow}. Help me expand this into realistic first steps.`;
-
-  const riskStarter =
-    preferredLanguage === "tr"
-      ? hasOverdueContext
-        ? "Gecikmiş işlerim var: ... Bugün neyi yapıp neyi ertelemem veya yeniden pazarlık etmem gerektiğini netleştirir misin?"
-        : "Şunda gecikme riski görüyorum: ... Gecikmeye düşmeden toparlamak için bir plan çıkarır mısın?"
-      : hasOverdueContext
-      ? "I already have overdue tasks around ... Help me triage what to do now, defer, or renegotiate."
-      : "I might be late on ... Help me prevent delay and set a recovery plan before it becomes overdue.";
+  const riskStarter = hasOverdueContext
+    ? "I already have overdue tasks around ... Help me triage what to do now, defer, or renegotiate."
+    : "I might be late on ... Help me prevent delay and set a recovery plan before it becomes overdue.";
 
   return [
     { text: questionCandidate ?? fallbackQuestion, kind: "question" },
@@ -614,14 +573,7 @@ function normalizeSuggestedActions(
   ];
 }
 
-function inferFocusWindowLabel(contextSignal: string, language: "tr" | "en"): string {
-  if (language === "tr") {
-    if (/\b(sabah|morning|08:|09:|10:|11:)\b/.test(contextSignal)) return "sabah odak penceremde";
-    if (/\b(öğleden sonra|ogleden sonra|afternoon|13:|14:|15:|16:)\b/.test(contextSignal)) return "öğleden sonra odak penceremde";
-    if (/\b(akşam|aksam|gece|evening|night|18:|19:|20:|21:)\b/.test(contextSignal)) return "akşam odak penceremde";
-    return "bir sonraki odak penceremde";
-  }
-
+function inferFocusWindowLabel(contextSignal: string): string {
   if (/\b(morning|08:|09:|10:|11:)\b/.test(contextSignal)) return "in my morning focus window";
   if (/\b(afternoon|13:|14:|15:|16:)\b/.test(contextSignal)) return "in my afternoon focus window";
   if (/\b(evening|night|18:|19:|20:|21:)\b/.test(contextSignal)) return "in my evening focus window";
@@ -680,14 +632,3 @@ function parseSuggestedActions(prompts: unknown): SuggestedAction[] {
   return parsed;
 }
 
-function detectPreferredLanguage(signal: string): "tr" | "en" {
-  if (looksTurkish(signal)) return "tr";
-  return "en";
-}
-
-function looksTurkish(text: string): boolean {
-  if (/[çğıöşüÇĞİÖŞÜ]/.test(text)) return true;
-  return /\b(ve|bir|için|icin|ile|ama|şu|su|bu|ne|nasıl|nasil|hangi|görev|hatırlatma|hatirlatma|bugün|bugun|yarın|yarin|hafta|ay|toplantı|toplanti|ekip|müşteri|musteri)\b/i.test(
-    text
-  );
-}
