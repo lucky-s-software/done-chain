@@ -107,11 +107,16 @@ export async function getRecentConversationHistory(
   }));
 }
 
+export interface AttentionWindowResult {
+  context: string;
+  activeTaskIds: string[];
+}
+
 export async function buildAttentionWindow(
   prisma: PrismaClient,
   recentMessages?: AttentionMessage[],
   options?: { profile?: string; knowledgeContext?: string; includeRecentMessages?: boolean }
-): Promise<string> {
+): Promise<AttentionWindowResult> {
   const now = new Date();
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const includeRecentMessages = options?.includeRecentMessages !== false;
@@ -144,15 +149,18 @@ export async function buildAttentionWindow(
       : Promise.resolve([] as AttentionMessage[]),
   ]);
 
-  return formatAttentionContext({
-    recentEntries,
-    pinnedEntries,
-    activeTasks,
-    recentSummaries,
-    recentMessages: latestConversation,
-    currentDate: now,
-    profile: options?.profile,
-    knowledgeContext: options?.knowledgeContext,
-    includeRecentMessages,
-  });
+  return {
+    context: formatAttentionContext({
+      recentEntries,
+      pinnedEntries,
+      activeTasks,
+      recentSummaries,
+      recentMessages: latestConversation,
+      currentDate: now,
+      profile: options?.profile,
+      knowledgeContext: options?.knowledgeContext,
+      includeRecentMessages,
+    }),
+    activeTaskIds: activeTasks.map((t) => t.id),
+  };
 }

@@ -376,8 +376,8 @@ function buildExistingTaskSnapshot(task: {
   dueAt: Date | null;
   dueType: DueType | null;
   reminderAt: Date | null;
-  estimatedMinutes: number | null;
-  executionStartAt: Date | null;
+  estimatedMinutes?: number | null;
+  executionStartAt?: Date | null;
   tags: string[] | string;
   personId: string | null;
   projectId: string | null;
@@ -389,8 +389,8 @@ function buildExistingTaskSnapshot(task: {
     dueAt: task.dueAt,
     dueType: task.dueType,
     reminderAt: task.reminderAt,
-    estimatedMinutes: task.estimatedMinutes,
-    executionStartAt: task.executionStartAt,
+    estimatedMinutes: task.estimatedMinutes ?? null,
+    executionStartAt: task.executionStartAt ?? null,
     tags: parseStoredTags(task.tags),
     person: task.person?.name ?? null,
     personId: task.personId,
@@ -482,24 +482,27 @@ function buildTaskUpdateEdits(
 async function findMatchingOpenTask(
   prisma: PrismaClient,
   extraction: NormalizedExtraction,
-  context: ResolvedContext
+  context: ResolvedContext,
+  allowedTaskIds?: string[]
 ): Promise<ExistingTaskSnapshot | null> {
   if (shouldAllowAdditionalInstance(extraction)) {
     return null;
   }
 
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const candidates = await prisma.task.findMany({
-    where: {
-      OR: [
-        { status: "active" },
-        { status: "proposed", createdAt: { gte: oneDayAgo } },
-      ],
-    },
+  if (allowedTaskIds !== undefined && allowedTaskIds.length === 0) {
+    return null;
+  }
+
+  const allCandidates = await prisma.task.findMany({
+    where: { status: { in: ["active", "proposed"] } },
     include: { person: true },
     orderBy: { createdAt: "desc" },
     take: 60,
   });
+
+  const candidates = allowedTaskIds
+    ? allCandidates.filter((c) => allowedTaskIds.includes(c.id))
+    : allCandidates;
 
   for (const candidate of candidates) {
     const snapshot = buildExistingTaskSnapshot(candidate);
@@ -515,7 +518,8 @@ export async function persistExtraction(
   prisma: PrismaClient,
   extraction: NormalizedExtraction,
   sourceMessageId?: string,
-  source: "ai_extracted" | "summary" = "ai_extracted"
+  source: "ai_extracted" | "summary" = "ai_extracted",
+  allowedTaskIds?: string[]
 ): Promise<PersistedExtractionResult> {
   const context = await resolveContext(prisma, extraction);
 
@@ -557,7 +561,7 @@ export async function persistExtraction(
     return { entryId: entry.id, createdMemory: true };
   }
 
-  const matchingOpenTask = await findMatchingOpenTask(prisma, extraction, context);
+  const matchingOpenTask = await findMatchingOpenTask(prisma, extraction, context, allowedTaskIds);
   if (matchingOpenTask) {
     const proposedTaskEdits = buildTaskUpdateEdits(matchingOpenTask, extraction, context);
     if (!proposedTaskEdits) {

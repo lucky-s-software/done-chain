@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     const knowledgeContext = [enrichedContext, knowledgeContent].filter(Boolean).join("\n\n") || undefined;
 
-    const attentionContext = await buildAttentionWindow(prisma, recentConversationHistory, {
+    const { context: attentionContext, activeTaskIds } = await buildAttentionWindow(prisma, recentConversationHistory, {
       profile: profile || undefined,
       knowledgeContext,
       includeRecentMessages: false,
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
     // 5. Process extractions
     for (const ext of extractions) {
       const normalizedTags = buildNormalizedTags(ext);
-      const persisted = await persistExtraction(prisma, ext, userMessage.id);
+      const persisted = await persistExtraction(prisma, ext, userMessage.id, "ai_extracted", activeTaskIds);
 
       if (ext.type === "memory" && persisted.entryId) {
         await prisma.entry.update({
