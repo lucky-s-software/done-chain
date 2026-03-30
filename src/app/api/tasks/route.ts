@@ -7,7 +7,6 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
-    const due = searchParams.get("due");
     const allowedStatuses = new Set(["proposed", "active", "done", "cancelled"] as const);
     const statusFilters = (status ?? "")
       .split(",")
@@ -16,22 +15,14 @@ export async function GET(req: NextRequest) {
         allowedStatuses.has(item as "proposed" | "active" | "done" | "cancelled")
       );
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
     const taskOrderBy = hasTaskField("executionStartAt")
-      ? [{ executionStartAt: "asc" as const }, { dueAt: "asc" as const }]
-      : [{ dueAt: "asc" as const }];
+      ? [{ executionStartAt: "asc" as const }, { createdAt: "asc" as const }]
+      : [{ createdAt: "asc" as const }];
 
     const tasks = await prisma.task.findMany({
       where: {
         ...(statusFilters.length === 1 ? { status: statusFilters[0] } : {}),
         ...(statusFilters.length > 1 ? { status: { in: statusFilters } } : {}),
-        ...(due === "today"
-          ? { OR: [{ dueAt: { gte: today, lt: tomorrow } }, { dueAt: null }] }
-          : {}),
       },
       orderBy: taskOrderBy,
       include: { person: true, project: true },
@@ -53,41 +44,35 @@ export async function PATCH(req: NextRequest) {
       action,
       edits,
       title,
-      dueAt,
       estimatedMinutes,
       executionStartAt,
       tags,
-      postponeTo,
     } = body as {
       id: string;
-      action?: "complete" | "postpone" | "snooze" | "cancel";
+      action?: "complete" | "cancel" | "reopen";
       edits?: {
         title?: string;
-        dueAt?: string | null;
         estimatedMinutes?: number | null;
         executionStartAt?: string | null;
         tags?: string[];
       };
       title?: string;
-      dueAt?: string | null;
       estimatedMinutes?: number | null;
       executionStartAt?: string | null;
       tags?: string[];
-      postponeTo?: string | null;
     };
 
-    const normalizedEdits = edits ?? { title, dueAt, estimatedMinutes, executionStartAt, tags };
+    const normalizedEdits = edits ?? { title, estimatedMinutes, executionStartAt, tags };
     const updateData: Record<string, unknown> = {};
 
     if (action === "complete") {
       updateData.status = "done";
       updateData.completedAt = new Date();
+    } else if (action === "reopen") {
+      updateData.status = "active";
+      updateData.completedAt = null;
     } else if (action === "cancel") {
       updateData.status = "cancelled";
-    } else if (action === "snooze" || action === "postpone") {
-      updateData.dueAt = postponeTo
-        ? new Date(postponeTo)
-        : new Date(Date.now() + 24 * 60 * 60 * 1000);
     }
 
     if (normalizedEdits.title !== undefined) {
@@ -96,10 +81,6 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "Title cannot be empty" }, { status: 400 });
       }
       updateData.title = nextTitle;
-    }
-
-    if (normalizedEdits.dueAt !== undefined) {
-      updateData.dueAt = normalizedEdits.dueAt ? new Date(normalizedEdits.dueAt) : null;
     }
 
     if (normalizedEdits.executionStartAt !== undefined && hasTaskField("executionStartAt")) {

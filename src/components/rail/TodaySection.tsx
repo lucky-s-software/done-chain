@@ -6,7 +6,6 @@ import {
   formatTimeInTimeZone,
   getDateKeyInTimeZone,
   getDatePartsInTimeZone,
-  shiftDateKey,
   zonedDateTimeToUtc,
 } from "@/lib/timezone";
 
@@ -15,19 +14,23 @@ interface TodaySectionProps {
   timezone: string;
 }
 
-function toTimeInputValue(value: string | null | undefined, timezone: string): string {
-  if (!value) return "09:00";
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "09:00";
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toTimeInputValue(value: string | null | undefined, timezone: string): string {
+  const date = parseDate(value);
+  if (!date) return "09:00";
   const parts = getDatePartsInTimeZone(date, timezone);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(parts.hour)}:${pad(parts.minute)}`;
 }
 
 function toDateInputValue(value: string | null | undefined, timezone: string): string {
-  if (!value) return getDateKeyInTimeZone(new Date(), timezone);
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return getDateKeyInTimeZone(new Date(), timezone);
+  const date = parseDate(value);
+  if (!date) return getDateKeyInTimeZone(new Date(), timezone);
   return getDateKeyInTimeZone(date, timezone);
 }
 
@@ -37,13 +40,10 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
 
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [editDueDate, setEditDueDate] = useState("");
-  const [editDueTime, setEditDueTime] = useState("09:00");
+  const [editHasStart, setEditHasStart] = useState(false);
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editStartTime, setEditStartTime] = useState("09:00");
   const [editEstimate, setEditEstimate] = useState("");
-
-  const [postponingTaskId, setPostponingTaskId] = useState<string | null>(null);
-  const [postponeDate, setPostponeDate] = useState("");
-  const [postponeTime, setPostponeTime] = useState("09:00");
 
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
@@ -53,11 +53,21 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
       const data = await res.json();
 
       const todayKey = getDateKeyInTimeZone(new Date(), timezone);
-      const todayTasks = (data.tasks ?? []).filter((t: Task) => {
-        if (!t.dueAt) return true;
-        const due = new Date(t.dueAt);
-        return getDateKeyInTimeZone(due, timezone) <= todayKey;
-      });
+      const todayTasks = (data.tasks ?? [])
+        .filter((task: Task) => {
+          const executionStartAt = parseDate(task.executionStartAt);
+          if (!executionStartAt) return true;
+          return getDateKeyInTimeZone(executionStartAt, timezone) === todayKey;
+        })
+        .sort((a: Task, b: Task) => {
+          const aStart = parseDate(a.executionStartAt);
+          const bStart = parseDate(b.executionStartAt);
+          if (aStart && bStart) return aStart.getTime() - bStart.getTime();
+          if (aStart) return -1;
+          if (bStart) return 1;
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        });
+
       setTasks(todayTasks);
     } catch {
       // silent
@@ -68,7 +78,7 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
 
   useEffect(() => {
     setLoading(true);
-    load();
+    void load();
   }, [load]);
 
   const patchTask = useCallback(
@@ -110,11 +120,19 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
   );
 
   const startEdit = (task: Task) => {
+    const executionStartAt = parseDate(task.executionStartAt);
+
     setEditingTaskId(task.id);
-    setPostponingTaskId(null);
     setDeletingTaskId(null);
-    setEditDueDate(toDateInputValue(task.dueAt, timezone));
-    setEditDueTime(toTimeInputValue(task.dueAt, timezone));
+    setEditHasStart(Boolean(executionStartAt));
+    setEditStartDate(
+      executionStartAt
+        ? toDateInputValue(task.executionStartAt, timezone)
+        : getDateKeyInTimeZone(new Date(), timezone)
+    );
+    setEditStartTime(
+      executionStartAt ? toTimeInputValue(task.executionStartAt, timezone) : "09:00"
+    );
     setEditEstimate(
       typeof task.estimatedMinutes === "number" && task.estimatedMinutes > 0
         ? String(task.estimatedMinutes)
@@ -124,14 +142,15 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
 
   const saveEdit = async (taskId: string) => {
     const parsedEstimate = Number.parseInt(editEstimate, 10);
-    const nextDueAt = editDueDate
-      ? zonedDateTimeToUtc(editDueDate, editDueTime || "09:00", timezone).toISOString()
-      : null;
+    const nextExecutionStartAt =
+      editHasStart && editStartDate
+        ? zonedDateTimeToUtc(editStartDate, editStartTime || "09:00", timezone).toISOString()
+        : null;
 
     await patchTask({
       id: taskId,
       edits: {
-        dueAt: nextDueAt,
+        executionStartAt: nextExecutionStartAt,
         estimatedMinutes:
           Number.isFinite(parsedEstimate) && parsedEstimate > 0
             ? Math.max(1, parsedEstimate)
@@ -142,27 +161,6 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
     setEditingTaskId(null);
   };
 
-  const startPostpone = (task: Task) => {
-    const baseDate = task.dueAt ? new Date(task.dueAt) : new Date();
-    const nextDate = new Date(baseDate.getTime());
-    nextDate.setDate(nextDate.getDate() + 1);
-
-    setPostponingTaskId(task.id);
-    setEditingTaskId(null);
-    setDeletingTaskId(null);
-    setPostponeDate(getDateKeyInTimeZone(nextDate, timezone));
-    setPostponeTime(toTimeInputValue(task.dueAt, timezone));
-  };
-
-  const applyPostpone = async (taskId: string, dateKey: string) => {
-    const postponeTo = zonedDateTimeToUtc(dateKey, postponeTime || "09:00", timezone).toISOString();
-    await patchTask({ id: taskId, action: "postpone", postponeTo });
-    setPostponingTaskId(null);
-  };
-
-  const now = new Date();
-  const todayKey = getDateKeyInTimeZone(now, timezone);
-
   if (loading) {
     return (
       <div className="px-4 py-2 text-xs font-mono text-[var(--text-muted)]">loading...</div>
@@ -172,37 +170,41 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
   return (
     <div>
       <div className="px-4 py-2 border-b border-[var(--border)]">
-        <span className="font-mono text-xs tracking-widest text-[var(--text-muted)] uppercase">Today</span>
+        <span className="font-mono text-xs tracking-widest text-[var(--text-muted)] uppercase">
+          Today
+        </span>
         {tasks.length > 0 && (
           <span className="ml-2 text-xs font-mono text-[var(--accent)]">{tasks.length}</span>
         )}
       </div>
 
       {tasks.length === 0 ? (
-        <div className="px-4 py-3 text-xs text-[var(--text-muted)] font-mono">— nothing due today</div>
+        <div className="px-4 py-3 text-xs text-[var(--text-muted)] font-mono">
+          — nothing planned for today
+        </div>
       ) : (
         <ul className="divide-y divide-[var(--border)]">
           {tasks.map((task) => {
-            const dueAt = task.dueAt ? new Date(task.dueAt) : null;
-            const dueKey = dueAt ? getDateKeyInTimeZone(dueAt, timezone) : null;
-            const overdue = Boolean(
-              dueAt &&
-                dueKey &&
-                (dueKey < todayKey || (dueKey === todayKey && dueAt.getTime() < now.getTime()))
-            );
+            const executionStartAt = parseDate(task.executionStartAt);
             const busy = busyTaskId === task.id;
 
             return (
-              <li key={task.id} className={`px-4 py-3 ${overdue ? "bg-[var(--danger)]/5" : ""}`}>
+              <li key={task.id} className="px-4 py-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm truncate ${overdue ? "text-[var(--danger)]" : "text-[var(--text-primary)]"}`}>
-                      {task.title}
-                    </p>
-                    {task.dueAt && (
-                      <p className={`text-xs font-mono mt-0.5 ${overdue ? "text-[var(--danger)]" : "text-[var(--text-muted)]"}`}>
-                        {overdue ? "⚠ " : ""}
-                        {dueAt ? formatTimeInTimeZone(dueAt, timezone) : ""}
+                    <p className="text-sm truncate text-[var(--text-primary)]">{task.title}</p>
+                    {executionStartAt ? (
+                      <p className="text-xs font-mono mt-0.5 text-[var(--accent)]">
+                        start {formatTimeInTimeZone(executionStartAt, timezone)}
+                      </p>
+                    ) : (
+                      <p className="text-xs font-mono mt-0.5 text-[var(--text-muted)]">
+                        unscheduled
+                      </p>
+                    )}
+                    {typeof task.estimatedMinutes === "number" && task.estimatedMinutes > 0 && (
+                      <p className="text-xs font-mono mt-0.5 text-[var(--text-muted)]">
+                        ~{task.estimatedMinutes}m
                       </p>
                     )}
                   </div>
@@ -230,20 +232,9 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => startPostpone(task)}
-                      disabled={busy}
-                      className="w-6 h-6 flex items-center justify-center border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-tertiary)] text-xs transition-colors disabled:opacity-50"
-                      title="Postpone"
-                      aria-label="Postpone"
-                    >
-                      ↷
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => {
                         setDeletingTaskId(task.id);
                         setEditingTaskId(null);
-                        setPostponingTaskId(null);
                       }}
                       disabled={busy}
                       className="w-6 h-6 flex items-center justify-center border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 text-xs transition-colors disabled:opacity-50"
@@ -257,9 +248,12 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
 
                 {task.tags.length > 0 && (
                   <div className="flex gap-1 mt-1 flex-wrap">
-                    {task.tags.map((t) => (
-                      <span key={t} className="text-[10px] font-mono text-[var(--text-muted)] border border-[var(--border)] px-1">
-                        #{t}
+                    {task.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="text-[10px] font-mono text-[var(--text-muted)] border border-[var(--border)] px-1"
+                      >
+                        #{tag}
                       </span>
                     ))}
                   </div>
@@ -267,17 +261,36 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
 
                 {editingTaskId === task.id && (
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-[var(--text-muted)] mr-1">
+                      Start
+                    </span>
+                    <label className="inline-flex items-center gap-1 text-[10px] font-mono text-[var(--text-muted)]">
+                      <input
+                        type="checkbox"
+                        checked={editHasStart}
+                        onChange={(event) => {
+                          const enabled = event.target.checked;
+                          setEditHasStart(enabled);
+                          if (enabled && !editStartDate) {
+                            setEditStartDate(getDateKeyInTimeZone(new Date(), timezone));
+                          }
+                        }}
+                      />
+                      set
+                    </label>
                     <input
                       type="date"
-                      value={editDueDate}
-                      onChange={(event) => setEditDueDate(event.target.value)}
-                      className="bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1"
+                      value={editStartDate}
+                      onChange={(event) => setEditStartDate(event.target.value)}
+                      disabled={!editHasStart}
+                      className="bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1 disabled:opacity-50"
                     />
                     <input
                       type="time"
-                      value={editDueTime}
-                      onChange={(event) => setEditDueTime(event.target.value)}
-                      className="bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1"
+                      value={editStartTime}
+                      onChange={(event) => setEditStartTime(event.target.value)}
+                      disabled={!editHasStart}
+                      className="bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1 disabled:opacity-50"
                     />
                     <input
                       type="number"
@@ -300,46 +313,6 @@ export function TodaySection({ onTaskUpdate, timezone }: TodaySectionProps) {
                     <button
                       type="button"
                       onClick={() => setEditingTaskId(null)}
-                      className="px-2 py-1 border border-[var(--border)] text-[10px] font-mono text-[var(--text-muted)]"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-
-                {postponingTaskId === task.id && (
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => applyPostpone(task.id, shiftDateKey(todayKey, 1))}
-                      disabled={busy}
-                      className="px-2 py-1 border border-[var(--accent)] text-[10px] font-mono text-[var(--accent)] hover:bg-[var(--accent)]/10 disabled:opacity-50"
-                    >
-                      Tomorrow
-                    </button>
-                    <input
-                      type="date"
-                      value={postponeDate}
-                      onChange={(event) => setPostponeDate(event.target.value)}
-                      className="bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1"
-                    />
-                    <input
-                      type="time"
-                      value={postponeTime}
-                      onChange={(event) => setPostponeTime(event.target.value)}
-                      className="bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => applyPostpone(task.id, postponeDate)}
-                      disabled={busy || !postponeDate}
-                      className="px-2 py-1 border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-                    >
-                      Apply
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPostponingTaskId(null)}
                       className="px-2 py-1 border border-[var(--border)] text-[10px] font-mono text-[var(--text-muted)]"
                     >
                       Cancel

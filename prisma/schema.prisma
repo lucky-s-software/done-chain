@@ -101,7 +101,9 @@ model Task {
   title           String
   status          TaskStatus    @default(proposed)
   approvalState   ApprovalState @default(pending)
+  // Idle for now: deadline mode is temporarily disabled in product behavior.
   dueAt           DateTime?
+  // Idle for now: deadline hardness is temporarily disabled in product behavior.
   dueType         DueType?
   reminderAt      DateTime?
   estimatedMinutes Int?

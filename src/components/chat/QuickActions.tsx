@@ -11,7 +11,7 @@ interface QuickActionsProps {
 const STATIC_DEFAULTS: SuggestedAction[] = [
   { text: "Can you give me a quick view of my current commitments and biggest pain points right now?", kind: "question" },
   { text: "I am planning to ... in my next focus window. Help me expand this into realistic first steps.", kind: "action" },
-  { text: "I may be late on ... (or it is already overdue). Help me triage what to do now, defer, or renegotiate.", kind: "action" },
+  { text: "I need to recover momentum on ... Help me rebalance my next execution blocks.", kind: "action" },
 ];
 
 export function QuickActions({ suggestions, onSelect }: QuickActionsProps) {

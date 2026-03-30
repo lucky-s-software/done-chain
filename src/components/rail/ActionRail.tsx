@@ -2,6 +2,7 @@
 
 import { TodaySection } from "./TodaySection";
 import { UpcomingSection } from "./UpcomingSection";
+import { CompletedSection } from "./CompletedSection";
 import { StreakDisplay } from "./StreakDisplay";
 import { CreditCounter } from "./CreditCounter";
 import { MemorySection } from "./MemorySection";
@@ -114,11 +115,16 @@ export function ActionRail({ refreshPulse, timezone, onTimezoneChange }: ActionR
               onTaskUpdate={forceUpdate}
               timezone={timezone}
             />
+            <CompletedSection
+              key={`completed-${pulse}-${refreshPulse}-${timezone}`}
+              onTaskUpdate={forceUpdate}
+              timezone={timezone}
+            />
           </>
         ) : activeTab === "timeline" ? (
           <TimelineSection
-            key={`timeline-${pulse}-${refreshPulse}-${timezone}`}
-            refreshPulse={pulse + (refreshPulse ?? 0)}
+            key={`timeline-${timezone}`}
+            refreshPulse={refreshPulse}
             timezone={timezone}
             onTaskUpdate={forceUpdate}
           />

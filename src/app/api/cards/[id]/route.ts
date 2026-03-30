@@ -14,7 +14,6 @@ export async function PATCH(
       action: "approve" | "reject" | "dismiss";
       edits?: {
         title?: string;
-        dueAt?: string | null;
         tags?: string[];
         estimatedMinutes?: number | null;
         executionStartAt?: string | null;
@@ -37,7 +36,6 @@ export async function PATCH(
           proposalMode?: "create" | "update";
           proposedEdits?: {
             title?: string;
-            dueAt?: string | null;
             tags?: string[];
             estimatedMinutes?: number | null;
             executionStartAt?: string | null;
@@ -71,9 +69,6 @@ export async function PATCH(
             ? { status: "active", approvalState: "approved" }
             : {}),
           ...(mergedEdits?.title ? { title: mergedEdits.title } : {}),
-          ...(mergedEdits?.dueAt !== undefined
-            ? { dueAt: mergedEdits.dueAt ? new Date(mergedEdits.dueAt) : null }
-            : {}),
           ...(mergedEdits?.executionStartAt !== undefined && hasTaskField("executionStartAt")
             ? {
                 executionStartAt: mergedEdits.executionStartAt

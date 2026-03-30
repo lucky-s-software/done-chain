@@ -8,7 +8,6 @@ import { MAX_TAGS, normalizeTags } from "@/lib/tags";
 import {
   formatDateInTimeZone,
   formatTimeInTimeZone,
-  getDateKeyInTimeZone,
   getDatePartsInTimeZone,
   zonedDateTimeToUtc,
 } from "@/lib/timezone";
@@ -79,9 +78,6 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(payload.title);
-  const [editDue, setEditDue] = useState(
-    payload.dueAt ? getDateKeyInTimeZone(new Date(payload.dueAt), timezone) : ""
-  );
   const [editExecutionStart, setEditExecutionStart] = useState(
     toTimeZoneDateTimeInput(payload.executionStartAt, timezone)
   );
@@ -193,13 +189,6 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
           edits.title = trimmedTitle;
         }
 
-        const originalDueInTimezone = payload.dueAt
-          ? getDateKeyInTimeZone(new Date(payload.dueAt), timezone)
-          : "";
-        if (editDue !== originalDueInTimezone) {
-          edits.dueAt = editDue || null;
-        }
-
         const originalExecutionStart = toTimeZoneDateTimeInput(payload.executionStartAt, timezone);
         if (editExecutionStart !== originalExecutionStart) {
           edits.executionStartAt = toUtcIsoFromDateTimeInput(editExecutionStart, timezone);
@@ -233,9 +222,6 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
           <>
             <span className="text-[var(--success)]">✓</span>
             {isUpdateProposal ? "Task updated" : "Task added"}: &quot;{payload.title}&quot;
-            {payload.dueAt
-              ? ` — due ${formatDateInTimeZone(new Date(payload.dueAt), timezone)}`
-              : ""}
           </>
         ) : card.status === "rejected" ? (
           <>
@@ -272,12 +258,6 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
             onChange={(e) => setEditTitle(e.target.value)}
           />
           <input
-            type="date"
-            className="bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-secondary)] text-xs font-mono px-2 py-1 focus:outline-none focus:border-[var(--accent)]"
-            value={editDue}
-            onChange={(e) => setEditDue(e.target.value)}
-          />
-          <input
             type="datetime-local"
             className="bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-secondary)] text-xs font-mono px-2 py-1 focus:outline-none focus:border-[var(--accent)]"
             value={editExecutionStart}
@@ -305,16 +285,6 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
               </p>
             )}
           <div className="flex flex-wrap gap-1.5 text-xs text-[var(--text-muted)]">
-            {payload.dueAt && (
-              <span>
-                📅{" "}
-                {formatDateInTimeZone(new Date(payload.dueAt), timezone, {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </span>
-            )}
             {payload.executionStartAt && (
               <span>
                 ⏱{" "}
@@ -329,7 +299,6 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
               <span>≈ {payload.estimatedMinutes}m</span>
             )}
             {payload.person && <span>👤 {payload.person}</span>}
-            {payload.dueType && <Badge variant={payload.dueType === "hard" ? "danger" : "muted"}>{payload.dueType}</Badge>}
           </div>
         </div>
       )}

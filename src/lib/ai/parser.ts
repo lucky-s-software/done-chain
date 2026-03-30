@@ -550,7 +550,7 @@ function normalizeSuggestedActions(
 
   const fallbackQuestion = "Can you give me a quick view of my current commitments and biggest pain points right now?";
 
-  const hasTaskUpdateSignal = /\b(update|reschedule|postpone|move|change|deadline|due|task update|edit task)\b/.test(
+  const hasTaskUpdateSignal = /\b(update|reschedule|move|change|task update|edit task)\b/.test(
     contextSignal
   );
   const hasTaskCreationSignal = /\b(add task|new task|todo|to-do|need to|i should|i have to|remind me)\b/.test(
@@ -560,12 +560,12 @@ function normalizeSuggestedActions(
   const planningStarter = hasTaskUpdateSignal
     ? "I need to update this task: ... Help me turn that into a clear task update proposal."
     : hasTaskCreationSignal
-    ? "I want to add this as a new task: ... Can you suggest a title, duration, and due date?"
+    ? "I want to add this as a new task: ... Can you suggest a title, start time, and duration?"
     : `I am planning to ... ${focusWindow}. Help me expand this into realistic first steps.`;
 
   const riskStarter = hasOverdueContext
-    ? "I already have overdue tasks around ... Help me triage what to do now, defer, or renegotiate."
-    : "I might be late on ... Help me prevent delay and set a recovery plan before it becomes overdue.";
+    ? "I need to recover momentum on ... Help me rebalance my next execution blocks."
+    : "I need to recover momentum on ... Help me set a practical catch-up sequence.";
 
   return [
     { text: questionCandidate ?? fallbackQuestion, kind: "question" },
@@ -632,4 +632,3 @@ function parseSuggestedActions(prompts: unknown): SuggestedAction[] {
 
   return parsed;
 }
-

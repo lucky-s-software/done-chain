@@ -8,18 +8,18 @@ export async function evaluateDailyClosure(date: Date): Promise<void> {
   const endOfDay = new Date(date);
   endOfDay.setHours(23, 59, 59, 999);
 
-  const dueTasks = await prisma.task.findMany({
+  const plannedTasks = await prisma.task.findMany({
     where: {
-      dueAt: { gte: startOfDay, lte: endOfDay },
+      executionStartAt: { gte: startOfDay, lte: endOfDay },
       status: { in: ["active", "done", "cancelled"] },
     },
   });
 
-  const dueCount = dueTasks.length;
-  const completedCount = dueTasks.filter((t) => t.status === "done").length;
-  const cancelledCount = dueTasks.filter((t) => t.status === "cancelled").length;
+  const dueCount = plannedTasks.length;
+  const completedCount = plannedTasks.filter((t) => t.status === "done").length;
+  const cancelledCount = plannedTasks.filter((t) => t.status === "cancelled").length;
   const missedCount = dueCount - completedCount - cancelledCount;
-  const snoozedCount = 0; // Postpone analytics not tracked in closure metrics yet.
+  const snoozedCount = 0; // Legacy metric field kept for compatibility.
 
   let closureStatus: "clean" | "partial" | "missed";
   if (dueCount === 0 || completedCount === dueCount) {

@@ -1,5 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 import { parseStoredTags } from "@/lib/tags";
+import {
+  extractTimelineScheduleBlock,
+  stripTimelineScheduleBlock,
+} from "@/lib/schedulePreferences";
 
 interface AttentionMessage {
   role: "user" | "assistant" | "system";
@@ -10,7 +14,13 @@ interface AttentionMessage {
 interface AttentionInput {
   recentEntries: { content: string; tags: string[] | string; pinned: boolean; createdAt: Date }[];
   pinnedEntries: { content: string; tags: string[] | string }[];
-  activeTasks: { title: string; status?: string; dueAt: Date | null; dueType: string | null; tags: string[] | string }[];
+  activeTasks: {
+    title: string;
+    status?: string;
+    executionStartAt?: Date | null;
+    estimatedMinutes?: number | null;
+    tags: string[] | string;
+  }[];
   recentSummaries: { summary: string; periodEnd: Date }[];
   recentMessages: AttentionMessage[];
   currentDate: Date;
@@ -37,7 +47,16 @@ function formatAttentionContext(input: AttentionInput): string {
   const volatileParts: string[] = [];
 
   if (input.profile) {
-    stableParts.push(`## User Profile\n${input.profile.slice(0, 500)}`);
+    const scheduleSummary = extractTimelineScheduleBlock(input.profile);
+    const sanitizedProfile = stripTimelineScheduleBlock(input.profile);
+
+    if (scheduleSummary) {
+      stableParts.push(`## Weekly Availability\n${scheduleSummary}`);
+    }
+
+    if (sanitizedProfile) {
+      stableParts.push(`## User Profile\n${sanitizedProfile.slice(0, 500)}`);
+    }
   }
 
   if (input.pinnedEntries.length > 0) {
@@ -53,7 +72,13 @@ function formatAttentionContext(input: AttentionInput): string {
       `## Active Tasks\n${input.activeTasks
         .map(
           (t) =>
-            `- [${t.status ?? "active"}] ${t.title}${t.dueAt ? ` (due: ${t.dueAt.toISOString().split("T")[0]})` : ""} [${parseTags(t.tags).join(", ")}]`
+            `- [${t.status ?? "active"}] ${t.title}${
+              t.executionStartAt ? ` (start: ${t.executionStartAt.toISOString().slice(0, 16)})` : ""
+            }${
+              typeof t.estimatedMinutes === "number" && t.estimatedMinutes > 0
+                ? ` (${t.estimatedMinutes}m)`
+                : ""
+            } [${parseTags(t.tags).join(", ")}]`
         )
         .join("\n")}`
     );
@@ -135,7 +160,7 @@ export async function buildAttentionWindow(
     // tasks should not influence extraction decisions
     prisma.task.findMany({
       where: { status: "active" },
-      orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+      orderBy: [{ executionStartAt: "asc" }, { createdAt: "desc" }],
       take: 30,
     }),
     prisma.conversationSummary.findMany({
