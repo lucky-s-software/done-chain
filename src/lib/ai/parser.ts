@@ -204,8 +204,8 @@ async function twoLayerPipeline(
   const rawReply = await chatJson(replySystemPrompt, conversationMessages, {
     mode: "chat",
     model: forceReasoner ? REASONER_MODEL : undefined,
-    temperature: 1.3,
-    max_tokens: 800,
+    temperature: 1.2,
+    max_tokens: 1200,
     stage: forceReasoner ? "parser_reply_reasoner" : "parser_reply",
     onUsage,
   });

@@ -31,7 +31,7 @@ function resolveTemperature(options?: ChatOptions): number {
     return options.temperature;
   }
 
-  return options?.mode === "analysis" ? 1 : 1.3;
+  return options?.mode === "analysis" ? 1 : 1.2;
 }
 
 function resolveModel(options?: ChatOptions): string {
