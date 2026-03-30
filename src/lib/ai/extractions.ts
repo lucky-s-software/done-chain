@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import type { NormalizedExtraction } from "@/types";
+import type { DueType, NormalizedExtraction } from "@/types";
 import { hasTaskField } from "@/lib/taskFields";
 import { parseStoredTags } from "@/lib/tags";
 
@@ -74,16 +74,69 @@ const TAG_STOPWORDS = new Set([
   "göre",
 ]);
 
+const TASK_TITLE_STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "my",
+  "our",
+  "to",
+  "for",
+  "and",
+  "of",
+  "on",
+  "at",
+  "in",
+  "bir",
+  "ve",
+  "ile",
+  "icin",
+  "için",
+  "bu",
+  "su",
+  "şu",
+]);
+
+const ADDITIONAL_INSTANCE_PATTERN =
+  /\b(another|one more|again|additional|extra|second|third|new session|separate session|repeat|bir daha|tekrar|ek seans|ayri seans|ayrı seans|ikinci seans)\b/i;
+
 interface ResolvedContext {
   tags: string[];
   personId: string | null;
   projectId: string | null;
 }
 
+interface ExistingTaskSnapshot {
+  id: string;
+  title: string;
+  dueAt: Date | null;
+  dueType: DueType | null;
+  reminderAt: Date | null;
+  estimatedMinutes: number | null;
+  executionStartAt: Date | null;
+  tags: string[];
+  person: string | null;
+  projectId: string | null;
+  personId: string | null;
+}
+
+interface ProposedTaskEdits {
+  title?: string;
+  dueAt?: Date | null;
+  estimatedMinutes?: number | null;
+  executionStartAt?: Date | null;
+  tags?: string[];
+  personId?: string | null;
+  projectId?: string | null;
+}
+
 interface PersistedExtractionResult {
   taskId?: string;
   entryId?: string;
   createdMemory: boolean;
+  taskDisposition?: "created" | "updated_existing" | "duplicate_existing";
+  existingTask?: ExistingTaskSnapshot;
+  proposedTaskEdits?: ProposedTaskEdits;
 }
 
 function normalizeWhitespace(value: string): string {
@@ -106,6 +159,61 @@ function toTagSlug(value: string): string {
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+function normalizeTaskTitleForMatch(value: string): string {
+  const normalized = transliterateToAscii(normalizeWhitespace(value))
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return "";
+
+  return normalized
+    .split(" ")
+    .filter((token) => token.length > 1 && !TASK_TITLE_STOPWORDS.has(token))
+    .join(" ");
+}
+
+function tokenSet(value: string): Set<string> {
+  if (!value) return new Set();
+  return new Set(value.split(" ").filter(Boolean));
+}
+
+function scoreTitleSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) {
+    const minLength = Math.min(a.length, b.length);
+    return minLength >= 10 ? 0.92 : 0.75;
+  }
+
+  const aTokens = tokenSet(a);
+  const bTokens = tokenSet(b);
+  if (aTokens.size === 0 || bTokens.size === 0) return 0;
+
+  let overlap = 0;
+  for (const token of aTokens) {
+    if (bTokens.has(token)) overlap += 1;
+  }
+
+  const unionSize = aTokens.size + bTokens.size - overlap;
+  if (unionSize <= 0) return 0;
+
+  return overlap / unionSize;
+}
+
+function withinMinutes(a: Date | null, b: Date | null, minutes: number): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  const diff = Math.abs(a.getTime() - b.getTime());
+  return diff <= minutes * 60 * 1000;
+}
+
+function shouldAllowAdditionalInstance(extraction: NormalizedExtraction): boolean {
+  const signal = `${extraction.title} ${extraction.content}`;
+  return ADDITIONAL_INSTANCE_PATTERN.test(signal);
 }
 
 function extractNamedEntities(content: string): string[] {
@@ -260,6 +368,143 @@ async function findSimilarMemory(
   );
 }
 
+function buildExistingTaskSnapshot(task: {
+  id: string;
+  title: string;
+  dueAt: Date | null;
+  dueType: DueType | null;
+  reminderAt: Date | null;
+  estimatedMinutes: number | null;
+  executionStartAt: Date | null;
+  tags: string[] | string;
+  personId: string | null;
+  projectId: string | null;
+  person: { name: string } | null;
+}): ExistingTaskSnapshot {
+  return {
+    id: task.id,
+    title: task.title,
+    dueAt: task.dueAt,
+    dueType: task.dueType,
+    reminderAt: task.reminderAt,
+    estimatedMinutes: task.estimatedMinutes,
+    executionStartAt: task.executionStartAt,
+    tags: parseStoredTags(task.tags),
+    person: task.person?.name ?? null,
+    personId: task.personId,
+    projectId: task.projectId,
+  };
+}
+
+function isLikelySameOpenTask(
+  existing: ExistingTaskSnapshot,
+  extraction: NormalizedExtraction,
+  context: ResolvedContext
+): boolean {
+  if (context.personId && existing.personId && context.personId !== existing.personId) {
+    return false;
+  }
+
+  if (context.projectId && existing.projectId && context.projectId !== existing.projectId) {
+    return false;
+  }
+
+  const existingTitle = normalizeTaskTitleForMatch(existing.title);
+  const incomingTitle = normalizeTaskTitleForMatch(extraction.title);
+  const similarity = scoreTitleSimilarity(existingTitle, incomingTitle);
+
+  if (similarity < 0.82) {
+    return false;
+  }
+
+  if (!existing.dueAt || !extraction.dueAt) {
+    return true;
+  }
+
+  const dayDistance = Math.abs(existing.dueAt.getTime() - extraction.dueAt.getTime());
+  return dayDistance <= 36 * 60 * 60 * 1000;
+}
+
+function buildTaskUpdateEdits(
+  existing: ExistingTaskSnapshot,
+  extraction: NormalizedExtraction,
+  context: ResolvedContext
+): ProposedTaskEdits | null {
+  const edits: ProposedTaskEdits = {};
+
+  const trimmedIncomingTitle = normalizeWhitespace(extraction.title);
+  if (
+    trimmedIncomingTitle &&
+    trimmedIncomingTitle.toLowerCase() !== existing.title.trim().toLowerCase()
+  ) {
+    edits.title = trimmedIncomingTitle;
+  }
+
+  if (extraction.dueAt && !withinMinutes(existing.dueAt, extraction.dueAt, 1)) {
+    edits.dueAt = extraction.dueAt;
+  }
+
+  if (
+    hasTaskField("executionStartAt") &&
+    extraction.executionStartAt &&
+    !withinMinutes(existing.executionStartAt, extraction.executionStartAt, 1)
+  ) {
+    edits.executionStartAt = extraction.executionStartAt;
+  }
+
+  if (
+    hasTaskField("estimatedMinutes") &&
+    typeof extraction.estimatedMinutes === "number" &&
+    extraction.estimatedMinutes > 0 &&
+    extraction.estimatedMinutes !== existing.estimatedMinutes
+  ) {
+    edits.estimatedMinutes = extraction.estimatedMinutes;
+  }
+
+  const mergedTags = Array.from(new Set([...existing.tags, ...context.tags]));
+  if (mergedTags.join("|") !== existing.tags.join("|")) {
+    edits.tags = mergedTags;
+  }
+
+  if (context.personId && !existing.personId) {
+    edits.personId = context.personId;
+  }
+
+  if (context.projectId && !existing.projectId) {
+    edits.projectId = context.projectId;
+  }
+
+  return Object.keys(edits).length > 0 ? edits : null;
+}
+
+async function findMatchingOpenTask(
+  prisma: PrismaClient,
+  extraction: NormalizedExtraction,
+  context: ResolvedContext
+): Promise<ExistingTaskSnapshot | null> {
+  if (shouldAllowAdditionalInstance(extraction)) {
+    return null;
+  }
+
+  const candidates = await prisma.task.findMany({
+    where: {
+      status: { in: ["proposed", "active"] },
+    },
+    include: { person: true },
+    orderBy: { createdAt: "desc" },
+    take: 60,
+  });
+
+  for (const candidate of candidates) {
+    const snapshot = buildExistingTaskSnapshot(candidate);
+    if (isLikelySameOpenTask(snapshot, extraction, context)) {
+      return snapshot;
+    }
+  }
+
+  return null;
+}
+
 export async function persistExtraction(
   prisma: PrismaClient,
   extraction: NormalizedExtraction,
@@ -306,6 +551,27 @@ export async function persistExtraction(
     return { entryId: entry.id, createdMemory: true };
   }
 
+  const matchingOpenTask = await findMatchingOpenTask(prisma, extraction, context);
+  if (matchingOpenTask) {
+    const proposedTaskEdits = buildTaskUpdateEdits(matchingOpenTask, extraction, context);
+    if (!proposedTaskEdits) {
+      return {
+        taskId: matchingOpenTask.id,
+        createdMemory: false,
+        taskDisposition: "duplicate_existing",
+        existingTask: matchingOpenTask,
+      };
+    }
+
+    return {
+      taskId: matchingOpenTask.id,
+      createdMemory: false,
+      taskDisposition: "updated_existing",
+      existingTask: matchingOpenTask,
+      proposedTaskEdits,
+    };
+  }
+
   const task = await prisma.task.create({
     data: {
       title: extraction.title,
@@ -326,7 +592,11 @@ export async function persistExtraction(
     },
   });
 
-  return { taskId: task.id, createdMemory: false };
+  return {
+    taskId: task.id,
+    createdMemory: false,
+    taskDisposition: "created",
+  };
 }
 
 export async function persistSummaryEntry(

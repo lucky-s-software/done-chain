@@ -62,7 +62,19 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
     tags?: string[];
     person?: string;
     confidence?: number;
+    proposalMode?: "create" | "update";
+    existingTaskTitle?: string;
+    proposedEdits?: {
+      title?: string;
+      dueAt?: string | null;
+      tags?: string[];
+      estimatedMinutes?: number | null;
+      executionStartAt?: string | null;
+      personId?: string | null;
+      projectId?: string | null;
+    };
   };
+  const isUpdateProposal = payload.proposalMode === "update";
 
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -220,13 +232,16 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
         {card.status === "approved" ? (
           <>
             <span className="text-[var(--success)]">✓</span>
-            Task added: &quot;{payload.title}&quot;
+            {isUpdateProposal ? "Task updated" : "Task added"}: &quot;{payload.title}&quot;
             {payload.dueAt
               ? ` — due ${formatDateInTimeZone(new Date(payload.dueAt), timezone)}`
               : ""}
           </>
         ) : card.status === "rejected" ? (
-          <><span className="text-[var(--danger)]">✗</span> Task rejected.</>
+          <>
+            <span className="text-[var(--danger)]">✗</span>
+            {isUpdateProposal ? "Task update rejected." : "Task rejected."}
+          </>
         ) : (
           <><span className="text-[var(--text-muted)]">—</span> Dismissed.</>
         )}
@@ -238,9 +253,16 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
     <div onClick={(event) => event.stopPropagation()}>
       <Card accent className="mt-2 p-3">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[var(--accent)] font-mono text-xs tracking-widest">◉ TASK PROPOSED</span>
+        <span className="text-[var(--accent)] font-mono text-xs tracking-widest">
+          {isUpdateProposal ? "◉ TASK UPDATE PROPOSED" : "◉ TASK PROPOSED"}
+        </span>
         <Badge variant="accent">{confidencePct}%</Badge>
       </div>
+      {isUpdateProposal && payload.existingTaskTitle && (
+        <p className="mb-2 text-[10px] font-mono text-[var(--text-muted)]">
+          updating existing task: &quot;{payload.existingTaskTitle}&quot;
+        </p>
+      )}
 
       {editing ? (
         <div className="mb-2 flex flex-col gap-1.5">
@@ -396,9 +418,13 @@ export function ProposedTaskCard({ card, onAction, timezone }: ProposedTaskCardP
       </div>
 
       <div className="flex gap-2 mt-3">
-        <Button size="sm" variant="success" onClick={handleApprove} disabled={loading}>✓ Approve</Button>
+        <Button size="sm" variant="success" onClick={handleApprove} disabled={loading}>
+          {isUpdateProposal ? "✓ Apply update" : "✓ Approve"}
+        </Button>
         <Button size="sm" variant="ghost" onClick={() => setEditing(!editing)} disabled={loading}>✎ Edit</Button>
-        <Button size="sm" variant="danger" onClick={() => onAction(card.id, "reject")} disabled={loading}>✗ Reject</Button>
+        <Button size="sm" variant="danger" onClick={() => onAction(card.id, "reject")} disabled={loading}>
+          {isUpdateProposal ? "✗ Reject update" : "✗ Reject"}
+        </Button>
       </div>
       </Card>
     </div>

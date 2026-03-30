@@ -578,9 +578,24 @@ function normalizeSuggestedActions(
       ? "Mevcut taahhütlerimin genel görünümünü ve şu anki en büyük tıkanmaları çıkarır mısın?"
       : "Can you give me a quick view of my current commitments and biggest pain points right now?";
 
+  const hasTaskUpdateSignal = /\b(update|reschedule|postpone|move|change|deadline|due|task update|edit task|guncelle|güncelle|ertele|tarih|vade|plani degistir|planı değiştir)\b/.test(
+    contextSignal
+  );
+  const hasTaskCreationSignal = /\b(add task|new task|todo|to-do|need to|i should|i have to|remind me|gorev ekle|görev ekle|yapmaliyim|yapmalıyım)\b/.test(
+    contextSignal
+  );
+
   const planningStarter =
     preferredLanguage === "tr"
-      ? `Şunu ${focusWindow} planlıyorum: ... Bunu gerçekçi ilk adımlara genişletmeme yardım eder misin?`
+      ? hasTaskUpdateSignal
+        ? "Şu görevi güncellemem gerekiyor: ... Bunu net bir task update önerisine dönüştürür müsün?"
+        : hasTaskCreationSignal
+        ? "Bunu yeni bir görev olarak eklemek istiyorum: ... Başlık, süre ve tarih önerisi çıkarır mısın?"
+        : `Şunu ${focusWindow} planlıyorum: ... Bunu gerçekçi ilk adımlara genişletmeme yardım eder misin?`
+      : hasTaskUpdateSignal
+      ? "I need to update this task: ... Help me turn that into a clear task update proposal."
+      : hasTaskCreationSignal
+      ? "I want to add this as a new task: ... Can you suggest a title, duration, and due date?"
       : `I am planning to ... ${focusWindow}. Help me expand this into realistic first steps.`;
 
   const riskStarter =

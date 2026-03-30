@@ -19,7 +19,7 @@ export async function evaluateDailyClosure(date: Date): Promise<void> {
   const completedCount = dueTasks.filter((t) => t.status === "done").length;
   const cancelledCount = dueTasks.filter((t) => t.status === "cancelled").length;
   const missedCount = dueCount - completedCount - cancelledCount;
-  const snoozedCount = 0; // MVP: no snooze yet
+  const snoozedCount = 0; // Postpone analytics not tracked in closure metrics yet.
 
   let closureStatus: "clean" | "partial" | "missed";
   if (dueCount === 0 || completedCount === dueCount) {

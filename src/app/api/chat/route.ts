@@ -90,6 +90,7 @@ export async function POST(req: NextRequest) {
     });
 
     let memoriesCreated = 0;
+    const actionCardTaskIds = new Set<string>();
 
     // 5. Process extractions
     for (const ext of extractions) {
@@ -115,11 +116,66 @@ export async function POST(req: NextRequest) {
           memoriesCreated++;
         }
       } else if ((ext.type === "task" || ext.type === "reminder") && persisted.taskId) {
-        await prisma.actionCard.create({
-          data: {
-            messageId: assistantMessage.id,
-            cardType: "proposed_task",
-            payload: {
+        if (persisted.taskDisposition === "duplicate_existing") {
+          continue;
+        }
+
+        if (actionCardTaskIds.has(persisted.taskId)) {
+          continue;
+        }
+
+        const toIso = (value: Date | null | undefined): string | null =>
+          value ? value.toISOString() : null;
+
+        const updateMode = persisted.taskDisposition === "updated_existing";
+        const existingTask = persisted.existingTask;
+        const proposedEdits = persisted.proposedTaskEdits;
+
+        const payload = updateMode && existingTask
+          ? {
+              taskId: persisted.taskId,
+              title: proposedEdits?.title ?? existingTask.title,
+              content: ext.content,
+              dueAt: toIso(
+                proposedEdits?.dueAt !== undefined ? proposedEdits.dueAt : existingTask.dueAt
+              ),
+              dueType: existingTask.dueType,
+              reminderAt: toIso(existingTask.reminderAt),
+              estimatedMinutes:
+                proposedEdits?.estimatedMinutes !== undefined
+                  ? proposedEdits.estimatedMinutes
+                  : existingTask.estimatedMinutes,
+              executionStartAt: toIso(
+                proposedEdits?.executionStartAt !== undefined
+                  ? proposedEdits.executionStartAt
+                  : existingTask.executionStartAt
+              ),
+              tags: proposedEdits?.tags ?? existingTask.tags,
+              person: ext.person ?? existingTask.person ?? null,
+              confidence: ext.confidence,
+              proposalMode: "update",
+              existingTaskTitle: existingTask.title,
+              proposedEdits: {
+                ...(proposedEdits?.title ? { title: proposedEdits.title } : {}),
+                ...(proposedEdits?.dueAt !== undefined
+                  ? { dueAt: toIso(proposedEdits.dueAt) }
+                  : {}),
+                ...(proposedEdits?.estimatedMinutes !== undefined
+                  ? { estimatedMinutes: proposedEdits.estimatedMinutes }
+                  : {}),
+                ...(proposedEdits?.executionStartAt !== undefined
+                  ? { executionStartAt: toIso(proposedEdits.executionStartAt) }
+                  : {}),
+                ...(proposedEdits?.tags ? { tags: proposedEdits.tags } : {}),
+                ...(proposedEdits?.personId !== undefined
+                  ? { personId: proposedEdits.personId }
+                  : {}),
+                ...(proposedEdits?.projectId !== undefined
+                  ? { projectId: proposedEdits.projectId }
+                  : {}),
+              },
+            }
+          : {
               taskId: persisted.taskId,
               title: ext.title,
               content: ext.content,
@@ -131,10 +187,18 @@ export async function POST(req: NextRequest) {
               tags: normalizedTags,
               person: ext.person,
               confidence: ext.confidence,
-            },
+              proposalMode: "create",
+            };
+
+        await prisma.actionCard.create({
+          data: {
+            messageId: assistantMessage.id,
+            cardType: "proposed_task",
+            payload,
             status: "pending",
           },
         });
+        actionCardTaskIds.add(persisted.taskId);
       }
     }
 

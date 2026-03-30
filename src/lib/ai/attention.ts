@@ -114,7 +114,6 @@ export async function buildAttentionWindow(
 ): Promise<string> {
   const now = new Date();
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const includeRecentMessages = options?.includeRecentMessages !== false;
 
   const [recentEntries, pinnedEntries, activeTasks, recentSummaries, latestConversation] = await Promise.all([
@@ -129,11 +128,10 @@ export async function buildAttentionWindow(
     }),
     prisma.task.findMany({
       where: {
-        status: "active",
-        OR: [{ dueAt: null }, { dueAt: { lte: sevenDaysFromNow } }],
+        status: { in: ["active", "proposed"] },
       },
-      orderBy: { dueAt: "asc" },
-      take: 15,
+      orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+      take: 30,
     }),
     prisma.conversationSummary.findMany({
       orderBy: { periodEnd: "desc" },

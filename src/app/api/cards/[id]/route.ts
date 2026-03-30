@@ -18,6 +18,8 @@ export async function PATCH(
         tags?: string[];
         estimatedMinutes?: number | null;
         executionStartAt?: string | null;
+        personId?: string | null;
+        projectId?: string | null;
       };
     };
 
@@ -30,43 +32,65 @@ export async function PATCH(
 
     if (action === "approve") {
       if (card.cardType === "proposed_task") {
-        const normalizedTags = edits?.tags ? normalizeTags(edits.tags) : undefined;
         const payload = card.payload as {
           taskId: string;
+          proposalMode?: "create" | "update";
+          proposedEdits?: {
+            title?: string;
+            dueAt?: string | null;
+            tags?: string[];
+            estimatedMinutes?: number | null;
+            executionStartAt?: string | null;
+            personId?: string | null;
+            projectId?: string | null;
+          };
           title?: string;
           dueAt?: string;
           tags?: string[];
         };
+        const proposalMode = payload.proposalMode === "update" ? "update" : "create";
+        const mergedEdits = proposalMode === "update"
+          ? { ...(payload.proposedEdits ?? {}), ...(edits ?? {}) }
+          : edits;
+        const normalizedTags = mergedEdits?.tags ? normalizeTags(mergedEdits.tags) : undefined;
 
-        // Update the proposed task to active
+        const updateData: Record<string, unknown> = {
+          ...(proposalMode === "create"
+            ? { status: "active", approvalState: "approved" }
+            : {}),
+          ...(mergedEdits?.title ? { title: mergedEdits.title } : {}),
+          ...(mergedEdits?.dueAt !== undefined
+            ? { dueAt: mergedEdits.dueAt ? new Date(mergedEdits.dueAt) : null }
+            : {}),
+          ...(mergedEdits?.executionStartAt !== undefined && hasTaskField("executionStartAt")
+            ? {
+                executionStartAt: mergedEdits.executionStartAt
+                  ? new Date(mergedEdits.executionStartAt)
+                  : null,
+              }
+            : {}),
+          ...(mergedEdits?.estimatedMinutes !== undefined && hasTaskField("estimatedMinutes")
+            ? {
+                estimatedMinutes:
+                  typeof mergedEdits.estimatedMinutes === "number" && mergedEdits.estimatedMinutes > 0
+                    ? Math.max(1, Math.round(mergedEdits.estimatedMinutes))
+                    : null,
+              }
+            : {}),
+          ...(normalizedTags !== undefined
+            ? { tags: JSON.stringify(normalizedTags) }
+            : {}),
+          ...(mergedEdits?.personId !== undefined
+            ? { personId: mergedEdits.personId }
+            : {}),
+          ...(mergedEdits?.projectId !== undefined
+            ? { projectId: mergedEdits.projectId }
+            : {}),
+        };
+
         createdTask = await prisma.task.update({
           where: { id: payload.taskId },
-          data: {
-            status: "active",
-            approvalState: "approved",
-            ...(edits?.title ? { title: edits.title } : {}),
-            ...(edits?.dueAt !== undefined
-              ? { dueAt: edits.dueAt ? new Date(edits.dueAt) : null }
-              : {}),
-            ...(edits?.executionStartAt !== undefined && hasTaskField("executionStartAt")
-              ? {
-                  executionStartAt: edits.executionStartAt
-                    ? new Date(edits.executionStartAt)
-                    : null,
-                }
-              : {}),
-            ...(edits?.estimatedMinutes !== undefined && hasTaskField("estimatedMinutes")
-              ? {
-                  estimatedMinutes:
-                    typeof edits.estimatedMinutes === "number" && edits.estimatedMinutes > 0
-                      ? Math.max(1, Math.round(edits.estimatedMinutes))
-                      : null,
-                }
-              : {}),
-            ...(normalizedTags !== undefined
-              ? { tags: JSON.stringify(normalizedTags) }
-              : {}),
-          },
+          data: updateData,
         });
 
         if (normalizedTags) {
@@ -91,11 +115,14 @@ export async function PATCH(
         });
       }
     } else if (action === "reject" && card.cardType === "proposed_task") {
-      const payload = card.payload as { taskId: string };
-      await prisma.task.update({
-        where: { id: payload.taskId },
-        data: { status: "cancelled", approvalState: "rejected" },
-      });
+      const payload = card.payload as { taskId: string; proposalMode?: "create" | "update" };
+      const proposalMode = payload.proposalMode === "update" ? "update" : "create";
+      if (proposalMode === "create") {
+        await prisma.task.update({
+          where: { id: payload.taskId },
+          data: { status: "cancelled", approvalState: "rejected" },
+        });
+      }
     }
 
     // Update card status

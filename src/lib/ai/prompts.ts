@@ -13,6 +13,8 @@ export const CHAT_SYSTEM_PROMPT = `You are Donechain, a personal commitment trac
 - If the user shares rich personal/project context (collaborators, project names, preferred work windows), capture at least one durable memory when confidence is high.
 - Do not create a memory for every repeated reminder instance. Repeated reminders should stay tasks/reminders unless they reveal one broader user aim.
 - For recurring plans like "gym 3 days a week", create reminder/task items for the schedule and at most one memory describing the broader aim.
+- If an open task in context already tracks the same commitment, do not create a duplicate task extraction unless the user clearly asks for an additional separate instance/session.
+- If the user changes deadline, timing, or scope of an existing commitment, emit a task extraction representing that update (not a duplicate copy).
 - Tags should be up to 5 specific, semantically true labels — project names, category labels (health, finance, work), people names, app/company names. Private/internal project names are valid. Avoid generic verbs, common nouns, adjectives.
 - Normalize tags mentally so special characters like Turkish letters still map to clean, consistent tags.
 
@@ -57,6 +59,7 @@ Always respond with valid JSON in this exact structure:
 - type "task" → becomes a proposed_task ActionCard (user must approve)
 - type "memory" → becomes a proposed_memory (auto-saved, user notified)
 - type "reminder" → becomes a proposed_task with reminderAt set
+- Avoid duplicate task extractions when the same task already exists in Active Tasks context, unless user explicitly requests another separate session/instance
 - Prefer tags that preserve special names in recognizable form, especially product, project, app, and company names
 - followUpQuestions must contain 0 to 3 short open-ended questions
 - Only ask follow-up questions when missing details would materially change what gets saved
@@ -136,6 +139,7 @@ export const EXTRACTION_SYSTEM_PROMPT = `You are a data extraction engine for a 
 - If the user provides explicit focus windows, keep executionStartAt within those windows only.
 - For planning-style messages with multiple actions, split oversized steps into realistic chunks (usually <= 60 minutes) unless user explicitly requests a long block.
 - When a message includes durable profile facts (ongoing project, collaboration partner, preferred focus hours), add at least one "memory" extraction in addition to tasks when confidence is high.
+- If an open task in context already matches the same commitment, emit an update-oriented task extraction instead of creating a duplicate task entry unless the user explicitly asks for another separate instance/session.
 - If no extractions apply, return empty array.
 - Today is: {CURRENT_DATE}
 

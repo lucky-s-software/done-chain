@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hasTaskField } from "@/lib/taskFields";
-import { parseStoredTags } from "@/lib/tags";
+import { normalizeTags, parseStoredTags } from "@/lib/tags";
 
 export async function GET(req: NextRequest) {
   try {
@@ -52,23 +52,31 @@ export async function PATCH(req: NextRequest) {
       id,
       action,
       edits,
+      title,
       dueAt,
       estimatedMinutes,
       executionStartAt,
+      tags,
+      postponeTo,
     } = body as {
       id: string;
-      action?: "complete" | "snooze" | "cancel";
+      action?: "complete" | "postpone" | "snooze" | "cancel";
       edits?: {
+        title?: string;
         dueAt?: string | null;
         estimatedMinutes?: number | null;
         executionStartAt?: string | null;
+        tags?: string[];
       };
+      title?: string;
       dueAt?: string | null;
       estimatedMinutes?: number | null;
       executionStartAt?: string | null;
+      tags?: string[];
+      postponeTo?: string | null;
     };
 
-    const normalizedEdits = edits ?? { dueAt, estimatedMinutes, executionStartAt };
+    const normalizedEdits = edits ?? { title, dueAt, estimatedMinutes, executionStartAt, tags };
     const updateData: Record<string, unknown> = {};
 
     if (action === "complete") {
@@ -76,8 +84,18 @@ export async function PATCH(req: NextRequest) {
       updateData.completedAt = new Date();
     } else if (action === "cancel") {
       updateData.status = "cancelled";
-    } else if (action === "snooze") {
-      updateData.dueAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    } else if (action === "snooze" || action === "postpone") {
+      updateData.dueAt = postponeTo
+        ? new Date(postponeTo)
+        : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    }
+
+    if (normalizedEdits.title !== undefined) {
+      const nextTitle = normalizedEdits.title.trim();
+      if (!nextTitle) {
+        return NextResponse.json({ error: "Title cannot be empty" }, { status: 400 });
+      }
+      updateData.title = nextTitle;
     }
 
     if (normalizedEdits.dueAt !== undefined) {
@@ -97,6 +115,18 @@ export async function PATCH(req: NextRequest) {
           : null;
     }
 
+    if (normalizedEdits.tags !== undefined) {
+      const normalized = normalizeTags(normalizedEdits.tags);
+      updateData.tags = JSON.stringify(normalized);
+      for (const tag of normalized) {
+        await prisma.tag.upsert({
+          where: { name: tag },
+          update: {},
+          create: { name: tag },
+        });
+      }
+    }
+
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: "No updates provided" }, { status: 400 });
     }
@@ -110,5 +140,21 @@ export async function PATCH(req: NextRequest) {
   } catch (err) {
     console.error("[tasks patch] error:", err);
     return NextResponse.json({ error: "Failed to update task" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const id = typeof body?.id === "string" ? body.id : "";
+    if (!id) {
+      return NextResponse.json({ error: "Task id is required" }, { status: 400 });
+    }
+
+    await prisma.task.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[tasks delete] error:", err);
+    return NextResponse.json({ error: "Failed to delete task" }, { status: 500 });
   }
 }
