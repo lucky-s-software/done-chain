@@ -89,6 +89,15 @@ export interface Entry {
   createdAt: string;
 }
 
+export interface ConversationSummaryRecord {
+  id: string;
+  summary: string;
+  periodStart: string;
+  periodEnd: string;
+  tags: string[];
+  createdAt: string;
+}
+
 // Extraction from AI parser
 export interface RawExtraction {
   type: "task" | "memory" | "reminder";

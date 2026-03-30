@@ -98,6 +98,11 @@ export async function POST(req: NextRequest) {
       const persisted = await persistExtraction(prisma, ext, userMessage.id);
 
       if (ext.type === "memory" && persisted.entryId) {
+        await prisma.entry.update({
+          where: { id: persisted.entryId },
+          data: { reviewed: true },
+        });
+
         await prisma.actionCard.create({
           data: {
             messageId: assistantMessage.id,

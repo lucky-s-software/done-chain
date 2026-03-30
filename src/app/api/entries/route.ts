@@ -6,13 +6,14 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const reviewed = searchParams.get("reviewed");
+    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50", 10) || 50, 1), 200);
 
     const entries = await prisma.entry.findMany({
       where: {
         ...(reviewed === "false" ? { reviewed: false } : {}),
       },
       orderBy: { createdAt: "desc" },
-      take: 50,
+      take: limit,
       include: { person: true, project: true },
     });
 

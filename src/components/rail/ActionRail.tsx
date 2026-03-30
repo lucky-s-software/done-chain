@@ -66,6 +66,16 @@ export function ActionRail({ refreshPulse, timezone, onTimezoneChange }: ActionR
     return () => media.removeListener(onChange);
   }, [themeMode]);
 
+  useEffect(() => {
+    const openMemories = () => {
+      setActiveTab("memories");
+      setPulse((p) => p + 1);
+    };
+
+    window.addEventListener("donechain:open-memories", openMemories);
+    return () => window.removeEventListener("donechain:open-memories", openMemories);
+  }, []);
+
   return (
     <div className="flex flex-col h-full bg-[var(--bg-secondary)] border-l border-[var(--border)] overflow-y-auto">
       {/* Top section: Streaks & Counters */}

@@ -158,23 +158,31 @@ export function ChatPanel({ onDataChange, timezone }: ChatPanelProps) {
       executionStartAt?: string | null;
     }
   ) => {
-    const res = await fetch(`/api/cards/${cardId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, edits }),
-    });
-    const data = await res.json();
-    onDataChange?.();
+    try {
+      const res = await fetch(`/api/cards/${cardId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, edits }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.card) {
+        throw new Error(data?.error || "Failed to update action card");
+      }
 
-    // Update card status inline — no page reload
-    setMessages((prev) =>
-      prev.map((msg) => ({
-        ...msg,
-        actionCards: msg.actionCards.map((c: ActionCard) =>
-          c.id === data.card?.id ? { ...c, status: data.card.status, resolvedAt: data.card.resolvedAt } : c
-        ),
-      }))
-    );
+      onDataChange?.();
+      setMessages((prev) =>
+        prev.map((msg) => ({
+          ...msg,
+          actionCards: msg.actionCards.map((c: ActionCard) =>
+            c.id === data.card.id
+              ? { ...c, status: data.card.status, resolvedAt: data.card.resolvedAt }
+              : c
+          ),
+        }))
+      );
+    } catch (err) {
+      console.error("[card action]", err);
+    }
   }, [onDataChange]);
 
   const handleMessageClick = useCallback((messageId: string) => {
