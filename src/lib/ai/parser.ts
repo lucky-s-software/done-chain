@@ -18,6 +18,8 @@ import type {
 import type { DeepSeekUsage } from "@/lib/deepseek";
 
 const USE_TWO_LAYER_AI = process.env.USE_TWO_LAYER_AI === "true";
+const ENABLE_REASONER_FALLBACK = process.env.ENABLE_REASONER_FALLBACK === "true";
+const REASONER_MODEL = process.env.DEEPSEEK_REASONER_MODEL || "deepseek-reasoner";
 
 export async function parseUserMessage(
   userContent: string,
@@ -27,20 +29,27 @@ export async function parseUserMessage(
   onUsage?: (usage: DeepSeekUsage) => void
 ): Promise<ParseResult> {
   try {
-    if (USE_TWO_LAYER_AI) {
-      return twoLayerPipeline(
-        userContent,
-        attentionContext,
-        recentConversationHistory,
-        clarificationTopicKey,
-        onUsage
-      );
-    }
-    return singleLayerPipeline(
+    const primary = USE_TWO_LAYER_AI
+      ? await twoLayerPipeline(
+          userContent,
+          attentionContext,
+          recentConversationHistory,
+          clarificationTopicKey,
+          onUsage
+        )
+      : await singleLayerPipeline(
+          userContent,
+          attentionContext,
+          recentConversationHistory,
+          clarificationTopicKey,
+          onUsage
+        );
+
+    return maybeApplyReasonerFallback(
+      primary,
       userContent,
       attentionContext,
       recentConversationHistory,
-      clarificationTopicKey,
       onUsage
     );
   } catch (err) {
@@ -56,6 +65,36 @@ export async function parseUserMessage(
       suggestedActions: normalizeSuggestedActions([], "", userContent, attentionContext),
     };
   }
+}
+
+async function maybeApplyReasonerFallback(
+  primary: ParseResult,
+  userContent: string,
+  attentionContext: string,
+  recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[],
+  onUsage?: (usage: DeepSeekUsage) => void
+): Promise<ParseResult> {
+  if (!ENABLE_REASONER_FALLBACK) return primary;
+  if (!shouldUseReasonerFallback(userContent, primary.extractions, primary.followUpQuestions)) {
+    return primary;
+  }
+
+  const fallbackRawExtractions = await runReasonerExtractionFallback(
+    userContent,
+    recentConversationHistory,
+    onUsage
+  );
+  if (fallbackRawExtractions.length === 0) return primary;
+
+  const merged = dedupeExtractions([
+    ...primary.extractions,
+    ...fallbackRawExtractions.map(normalizeExtraction),
+  ]);
+
+  return {
+    ...primary,
+    extractions: finalizeExtractions(userContent, attentionContext, merged),
+  };
 }
 
 async function singleLayerPipeline(
@@ -218,6 +257,100 @@ function finalizeExtractions(
   const withInferredMemories = inferMemoryFromTasks(extracted);
   const bootstrap = inferProfileBootstrapMemories(userContent, attentionContext, withInferredMemories);
   return inferMemoryFromTasks([...withInferredMemories, ...bootstrap]);
+}
+
+function dedupeExtractions(extractions: NormalizedExtraction[]): NormalizedExtraction[] {
+  const unique = new Map<string, NormalizedExtraction>();
+  for (const item of extractions) {
+    const key = [
+      item.type,
+      item.title.trim().toLowerCase(),
+      item.dueAt ? item.dueAt.toISOString().slice(0, 16) : "",
+      item.reminderAt ? item.reminderAt.toISOString().slice(0, 16) : "",
+    ].join("|");
+
+    const existing = unique.get(key);
+    if (!existing) {
+      unique.set(key, item);
+      continue;
+    }
+
+    existing.tags = Array.from(new Set([...existing.tags, ...item.tags]));
+    existing.confidence = Math.max(existing.confidence, item.confidence);
+    if (!existing.content && item.content) existing.content = item.content;
+  }
+
+  return Array.from(unique.values());
+}
+
+async function runReasonerExtractionFallback(
+  userContent: string,
+  recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[],
+  onUsage?: (usage: DeepSeekUsage) => void
+): Promise<RawExtraction[]> {
+  const today = new Date().toISOString().split("T")[0];
+  const extractionSystemPrompt = EXTRACTION_SYSTEM_PROMPT.replace("{CURRENT_DATE}", today);
+
+  const historySnippet = recentConversationHistory
+    .slice(-6)
+    .map((item) => `[${item.role}] ${item.content}`)
+    .join("\n");
+
+  const extractionUserMessage = historySnippet
+    ? `Recent conversation:\n${historySnippet}\n\nLatest user message:\n${userContent}`
+    : userContent;
+
+  const raw = await chat(
+    extractionSystemPrompt,
+    [{ role: "user", content: extractionUserMessage }],
+    {
+      mode: "analysis",
+      model: REASONER_MODEL,
+      max_tokens: 1400,
+      stage: "parser_reasoner_extraction",
+      onUsage,
+    }
+  );
+
+  const cleaned = raw
+    .replace(/```json\n?/g, "")
+    .replace(/```\n?/g, "")
+    .trim();
+
+  let parsed: { extractions?: RawExtraction[] };
+  try {
+    parsed = JSON.parse(cleaned || "{}");
+  } catch {
+    parsed = { extractions: [] };
+  }
+
+  return Array.isArray(parsed.extractions) ? parsed.extractions : [];
+}
+
+function shouldUseReasonerFallback(
+  userContent: string,
+  extractions: NormalizedExtraction[],
+  followUpQuestions: string[]
+): boolean {
+  const wordCount = userContent.trim().split(/\s+/).length;
+  if (wordCount < 14) return false;
+  if (!hasCommitmentIntent(userContent)) return false;
+
+  const extractedTaskLike = extractions.some(
+    (item) => item.type === "task" || item.type === "reminder"
+  );
+  const extractedMemory = extractions.some((item) => item.type === "memory");
+
+  if (!extractedTaskLike && !extractedMemory) return true;
+  if (!extractedTaskLike && followUpQuestions.length >= 2) return true;
+
+  return false;
+}
+
+function hasCommitmentIntent(text: string): boolean {
+  return /\b(plan|planning|schedule|task|todo|to-do|deadline|remind|follow up|focus window|analy[sz]e|extract|organi[sz]e|prioriti[sz]e|roadmap|next steps?)\b/i.test(
+    text
+  );
 }
 
 function normalizeExtraction(ext: RawExtraction): NormalizedExtraction {

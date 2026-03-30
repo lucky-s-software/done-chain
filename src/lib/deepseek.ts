@@ -21,6 +21,7 @@ interface ChatOptions {
   temperature?: number;
   max_tokens?: number;
   mode?: "chat" | "analysis";
+  model?: string;
   stage?: string;
   onUsage?: (usage: DeepSeekUsage) => void;
 }
@@ -31,6 +32,10 @@ function resolveTemperature(options?: ChatOptions): number {
   }
 
   return options?.mode === "analysis" ? 1 : 1.3;
+}
+
+function resolveModel(options?: ChatOptions): string {
+  return options?.model?.trim() || "deepseek-chat";
 }
 
 function readUsageNumber(value: unknown): number {
@@ -64,7 +69,7 @@ export async function chat(
 ): Promise<string> {
   const startedAt = Date.now();
   const response = await client.chat.completions.create({
-    model: "deepseek-chat",
+    model: resolveModel(options),
     messages: [{ role: "system", content: systemPrompt }, ...messages],
     temperature: resolveTemperature(options),
     max_tokens: options?.max_tokens ?? 2000,
@@ -81,7 +86,7 @@ export async function chatJson(
 ): Promise<string> {
   const startedAt = Date.now();
   const response = await client.chat.completions.create({
-    model: "deepseek-chat",
+    model: resolveModel(options),
     messages: [{ role: "system", content: systemPrompt }, ...messages],
     temperature: resolveTemperature(options),
     max_tokens: options?.max_tokens ?? 1200,
