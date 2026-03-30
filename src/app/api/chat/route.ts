@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
     const attentionContext = await buildAttentionWindow(prisma, recentConversationHistory, {
       profile: profile || undefined,
       knowledgeContext,
+      includeRecentMessages: false,
     });
 
     // 3. Manage clarification lifecycle

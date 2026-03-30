@@ -16,6 +16,7 @@ interface AttentionInput {
   currentDate: Date;
   profile?: string;
   knowledgeContext?: string;
+  includeRecentMessages?: boolean;
 }
 
 function parseTags(tags: string[] | string): string[] {
@@ -32,24 +33,15 @@ function truncateContent(content: string, maxLength = 220): string {
 }
 
 function formatAttentionContext(input: AttentionInput): string {
-  const parts: string[] = [];
+  const stableParts: string[] = [];
+  const volatileParts: string[] = [];
 
   if (input.profile) {
-    parts.push(`## User Profile\n${input.profile.slice(0, 500)}`);
-  }
-
-  parts.push(`## Current Date\n${input.currentDate.toISOString().split("T")[0]}`);
-
-  if (input.recentMessages.length > 0) {
-    parts.push(
-      `## Latest Conversation\n${input.recentMessages
-        .map((message) => `- [${message.role}] ${truncateContent(message.content)}`)
-        .join("\n")}`
-    );
+    stableParts.push(`## User Profile\n${input.profile.slice(0, 500)}`);
   }
 
   if (input.pinnedEntries.length > 0) {
-    parts.push(
+    stableParts.push(
       `## Pinned Memories\n${input.pinnedEntries
         .map((e) => `- ${e.content} [${parseTags(e.tags).join(", ")}]`)
         .join("\n")}`
@@ -57,7 +49,7 @@ function formatAttentionContext(input: AttentionInput): string {
   }
 
   if (input.activeTasks.length > 0) {
-    parts.push(
+    stableParts.push(
       `## Active Tasks\n${input.activeTasks
         .map(
           (t) =>
@@ -68,7 +60,7 @@ function formatAttentionContext(input: AttentionInput): string {
   }
 
   if (input.recentSummaries.length > 0) {
-    parts.push(
+    stableParts.push(
       `## Recent Session Summaries\n${input.recentSummaries
         .map((s) => `- [${s.periodEnd.toISOString().split("T")[0]}] ${s.summary}`)
         .join("\n")}`
@@ -76,7 +68,7 @@ function formatAttentionContext(input: AttentionInput): string {
   }
 
   if (input.recentEntries.length > 0) {
-    parts.push(
+    stableParts.push(
       `## Recent Memories (last 14 days)\n${input.recentEntries
         .map((e) => `- ${truncateContent(e.content, 150)} [${parseTags(e.tags).join(", ")}]`)
         .join("\n")}`
@@ -84,10 +76,18 @@ function formatAttentionContext(input: AttentionInput): string {
   }
 
   if (input.knowledgeContext) {
-    parts.push(`## Knowledge Context\n${input.knowledgeContext}`);
+    volatileParts.push(`## Knowledge Context\n${input.knowledgeContext}`);
   }
 
-  return parts.join("\n\n");
+  if (input.includeRecentMessages !== false && input.recentMessages.length > 0) {
+    volatileParts.push(
+      `## Latest Conversation\n${input.recentMessages
+        .map((message) => `- [${message.role}] ${truncateContent(message.content)}`)
+        .join("\n")}`
+    );
+  }
+
+  return [...stableParts, ...volatileParts].join("\n\n");
 }
 
 export async function getRecentConversationHistory(
@@ -110,11 +110,12 @@ export async function getRecentConversationHistory(
 export async function buildAttentionWindow(
   prisma: PrismaClient,
   recentMessages?: AttentionMessage[],
-  options?: { profile?: string; knowledgeContext?: string }
+  options?: { profile?: string; knowledgeContext?: string; includeRecentMessages?: boolean }
 ): Promise<string> {
   const now = new Date();
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const includeRecentMessages = options?.includeRecentMessages !== false;
 
   const [recentEntries, pinnedEntries, activeTasks, recentSummaries, latestConversation] = await Promise.all([
     prisma.entry.findMany({
@@ -138,7 +139,11 @@ export async function buildAttentionWindow(
       orderBy: { periodEnd: "desc" },
       take: 2,
     }),
-    recentMessages ? Promise.resolve(recentMessages) : getRecentConversationHistory(prisma),
+    includeRecentMessages
+      ? recentMessages
+        ? Promise.resolve(recentMessages)
+        : getRecentConversationHistory(prisma)
+      : Promise.resolve([] as AttentionMessage[]),
   ]);
 
   return formatAttentionContext({
@@ -150,5 +155,6 @@ export async function buildAttentionWindow(
     currentDate: now,
     profile: options?.profile,
     knowledgeContext: options?.knowledgeContext,
+    includeRecentMessages,
   });
 }
