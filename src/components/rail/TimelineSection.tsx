@@ -61,12 +61,6 @@ const DROP_MINUTE_STEP = 5;
 const TIMELINE_HOUR_HEIGHT_PX = 44;
 const TIMELINE_VISIBLE_HOURS = 8;
 
-function toTimeInputValue(date: Date, timezone: string): string {
-  const parts = getDatePartsInTimeZone(date, timezone);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(parts.hour)}:${pad(parts.minute)}`;
-}
-
 function toTimeValue(hour: number, minute: number): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${pad(hour)}:${pad(minute)}`;
@@ -141,9 +135,6 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
   );
   const [showDateInput, setShowDateInput] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [draftTime, setDraftTime] = useState("09:00");
-  const [draftEstimate, setDraftEstimate] = useState("");
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dropPreview, setDropPreview] = useState<{ hour: number; minute: number } | null>(null);
@@ -404,40 +395,6 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
     }
   };
 
-  const startPlanning = (task: Task, fallbackDate: Date | null) => {
-    const sourceDate = task.executionStartAt ? new Date(task.executionStartAt) : fallbackDate;
-
-    setEditingTaskId(task.id);
-    setDraftTime(sourceDate ? toTimeInputValue(sourceDate, timezone) : "09:00");
-    setDraftEstimate(
-      typeof task.estimatedMinutes === "number" && task.estimatedMinutes > 0
-        ? String(task.estimatedMinutes)
-        : ""
-    );
-  };
-
-  const savePlan = async (taskId: string) => {
-    const executionStartAt = zonedDateTimeToUtc(selectedDate, draftTime, timezone).toISOString();
-    const parsedEstimate = Number.parseInt(draftEstimate, 10);
-
-    await patchTask({
-      id: taskId,
-      edits: {
-        executionStartAt,
-        estimatedMinutes:
-          Number.isFinite(parsedEstimate) && parsedEstimate > 0
-            ? Math.max(1, parsedEstimate)
-            : null,
-      },
-    });
-
-    setEditingTaskId(null);
-  };
-
-  const clearExecutionTime = async (taskId: string) => {
-    await patchTask({ id: taskId, edits: { executionStartAt: null } });
-  };
-
   const markDone = async (taskId: string) => {
     await patchTask({ id: taskId, action: "complete" });
   };
@@ -486,7 +443,6 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
     if (saving) return;
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", taskId);
-    setEditingTaskId(null);
     setPendingMove(null);
     setDraggingTaskId(taskId);
   };
@@ -799,26 +755,6 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
                             >
                               ✓
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => startPlanning(item.task, item.startAt)}
-                              disabled={saving}
-                              className="px-1.5 h-6 border border-[var(--border)] text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                              title="Edit schedule"
-                            >
-                              Edit
-                            </button>
-                            {item.task.executionStartAt && (
-                              <button
-                                type="button"
-                                onClick={() => clearExecutionTime(item.task.id)}
-                                disabled={saving}
-                                className="px-1.5 h-6 border border-[var(--border)] text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--danger)]"
-                                title="Clear execution time"
-                              >
-                                Clear
-                              </button>
-                            )}
                           </div>
                         ) : (
                           <div className="flex items-center gap-1 shrink-0">
@@ -877,123 +813,25 @@ export function TimelineSection({ timezone, refreshPulse, onTaskUpdate }: Timeli
               const { task, executionStartAt, matchesExecutionDay, hasEstimate } = scoped;
               const isScheduledOnDay =
                 matchesExecutionDay && Boolean(executionStartAt) && hasEstimate;
-              const isActive = task.status === "active";
-              const scheduleFallback = zonedDateTimeToUtc(selectedDate, "09:00", timezone);
+              const timingLabel =
+                isScheduledOnDay && executionStartAt
+                  ? formatTimeInTimeZone(executionStartAt, timezone)
+                  : "unscheduled";
 
               return (
-                <li key={task.id} className="px-4 py-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p
-                        className={`text-sm truncate ${
-                          task.status === "done"
-                            ? "line-through text-[var(--text-muted)]"
-                            : "text-[var(--text-primary)]"
-                        }`}
-                      >
-                        {task.title}
-                      </p>
-                      <p className="text-[10px] font-mono text-[var(--text-muted)] mt-0.5">
-                        {isScheduledOnDay && executionStartAt
-                          ? `scheduled ${formatTimeInTimeZone(executionStartAt, timezone)}`
-                          : "not scheduled"}
-                        {typeof task.estimatedMinutes === "number" && task.estimatedMinutes > 0
-                          ? ` · ${task.estimatedMinutes}m`
-                          : " · estimate needed"}
-                      </p>
-                    </div>
-
-                    {isActive ? (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => markDone(task.id)}
-                          disabled={saving}
-                          className="w-6 h-6 border border-[var(--success)] text-[var(--success)] hover:bg-[var(--success)]/10"
-                          title="Mark done"
-                        >
-                          ✓
-                        </button>
-                        {isScheduledOnDay ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => startPlanning(task, executionStartAt ?? scheduleFallback)}
-                              disabled={saving}
-                              className="px-1.5 h-6 border border-[var(--border)] text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                              title="Edit schedule"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => clearExecutionTime(task.id)}
-                              disabled={saving}
-                              className="px-1.5 h-6 border border-[var(--border)] text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--danger)]"
-                              title="Clear execution time"
-                            >
-                              Clear
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => startPlanning(task, scheduleFallback)}
-                            disabled={saving}
-                            className="px-1.5 h-6 border border-[var(--accent)] text-[10px] font-mono text-[var(--accent)] hover:bg-[var(--accent)]/10"
-                            title="Set start time and estimate"
-                          >
-                            Schedule
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => reopenTask(task.id)}
-                        disabled={saving}
-                        className="px-1.5 h-6 border border-[var(--accent)] text-[10px] font-mono text-[var(--accent)] hover:bg-[var(--accent)]/10"
-                        title="Undo complete"
-                      >
-                        Undo
-                      </button>
-                    )}
-                  </div>
-
-                  {editingTaskId === task.id && isActive && (
-                    <div className="mt-2 flex items-center gap-1.5">
-                      <input
-                        type="time"
-                        value={draftTime}
-                        onChange={(event) => setDraftTime(event.target.value)}
-                        className="bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1"
-                      />
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={draftEstimate}
-                        onChange={(event) => setDraftEstimate(event.target.value)}
-                        className="w-20 bg-[var(--bg-primary)] border border-[var(--border)] text-[10px] font-mono text-[var(--text-secondary)] px-1.5 py-1"
-                        placeholder="mins"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => savePlan(task.id)}
-                        disabled={saving}
-                        className="px-2 py-1 border border-[var(--accent)] text-[10px] font-mono text-[var(--accent)] hover:bg-[var(--accent)]/10"
-                      >
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingTaskId(null)}
-                        className="px-2 py-1 border border-[var(--border)] text-[10px] font-mono text-[var(--text-muted)]"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
+                <li key={task.id} className="px-4 py-2 text-xs font-mono">
+                  <p
+                    className={`truncate ${
+                      task.status === "done"
+                        ? "line-through text-[var(--text-muted)]"
+                        : "text-[var(--text-secondary)]"
+                    }`}
+                    title={task.title}
+                  >
+                    <span className="inline-block w-20 text-[var(--text-muted)]">{timingLabel}</span>
+                    <span className="mr-1 text-[var(--text-muted)]">·</span>
+                    <span>{task.title}</span>
+                  </p>
                 </li>
               );
             })}
