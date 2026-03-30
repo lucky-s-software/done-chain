@@ -27,10 +27,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ deleted: 0 });
   }
 
-  // Hard-delete scoped message ids only (deterministic and avoids timestamp edge cases).
-  const deleted = await prisma.message.deleteMany({
-    where: { id: { in: idsToDelete } },
-  });
+  try {
+    // Delete ActionCards first (FK is ON DELETE RESTRICT in the migration)
+    await prisma.actionCard.deleteMany({ where: { messageId: { in: idsToDelete } } });
 
-  return NextResponse.json({ deleted: deleted.count });
+    const deleted = await prisma.message.deleteMany({
+      where: { id: { in: idsToDelete } },
+    });
+
+    return NextResponse.json({ deleted: deleted.count });
+  } catch (err) {
+    console.error("[bulk-delete] error:", err);
+    return NextResponse.json({ error: "Failed to delete messages" }, { status: 500 });
+  }
 }
