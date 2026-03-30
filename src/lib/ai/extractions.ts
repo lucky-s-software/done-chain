@@ -493,8 +493,11 @@ async function findMatchingOpenTask(
     return null;
   }
 
+  // Only match against active tasks — proposed tasks are unconfirmed and
+  // matching against them produces confusing "update" cards for tasks
+  // the user has never acknowledged. Better to create a fresh task.
   const allCandidates = await prisma.task.findMany({
-    where: { status: { in: ["active", "proposed"] } },
+    where: { status: "active" },
     include: { person: true },
     orderBy: { createdAt: "desc" },
     take: 60,

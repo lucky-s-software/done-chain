@@ -54,8 +54,20 @@ export async function PATCH(
           : edits;
         const normalizedTags = mergedEdits?.tags ? normalizeTags(mergedEdits.tags) : undefined;
 
+        // For updates, check if the target task is still proposed — if so, activate it
+        let shouldActivate = proposalMode === "create";
+        if (proposalMode === "update") {
+          const targetTask = await prisma.task.findUnique({
+            where: { id: payload.taskId },
+            select: { status: true },
+          });
+          if (targetTask?.status === "proposed") {
+            shouldActivate = true;
+          }
+        }
+
         const updateData: Record<string, unknown> = {
-          ...(proposalMode === "create"
+          ...(shouldActivate
             ? { status: "active", approvalState: "approved" }
             : {}),
           ...(mergedEdits?.title ? { title: mergedEdits.title } : {}),

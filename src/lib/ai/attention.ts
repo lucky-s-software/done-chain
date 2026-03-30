@@ -131,10 +131,10 @@ export async function buildAttentionWindow(
       where: { pinned: true },
       take: 10,
     }),
+    // Only show confirmed (active) tasks to the AI — proposed/unconfirmed
+    // tasks should not influence extraction decisions
     prisma.task.findMany({
-      where: {
-        status: { in: ["active", "proposed"] },
-      },
+      where: { status: "active" },
       orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
       take: 30,
     }),
