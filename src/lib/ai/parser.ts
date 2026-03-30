@@ -481,7 +481,8 @@ function inferProfileBootstrapMemories(
     .slice(0, 3);
 
   const profileIsSparse = !/## User Profile/i.test(attentionContext);
-  if (focusWindowMatches.length > 0 && profileIsSparse) {
+  const isOneTimeSchedule = /\b(tomorrow|next morning|starting tomorrow|starting next|tonight|this evening|next (monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i.test(trimmed);
+  if (focusWindowMatches.length > 0 && profileIsSparse && !isOneTimeSchedule) {
     bootstrapped.push({
       type: "memory",
       title: "Preferred focus windows",

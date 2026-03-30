@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import type { DueType, NormalizedExtraction } from "@/types";
 import { hasTaskField } from "@/lib/taskFields";
-import { parseStoredTags } from "@/lib/tags";
+import { normalizeTags, parseStoredTags } from "@/lib/tags";
 
 const PROJECT_SUFFIXES = [
   "app",
@@ -259,9 +259,11 @@ export function buildNormalizedTags(
     )
     .map(toTagSlug);
 
-  return Array.from(new Set([...baseTags, ...hashtagTags, ...knownNames]))
+  const candidates = Array.from(new Set([...baseTags, ...hashtagTags, ...knownNames]))
     .filter((tag) => tag.length >= 2 && !TAG_STOPWORDS.has(tag))
     .slice(0, 5);
+
+  return normalizeTags(candidates);
 }
 
 function detectProjectName(extraction: Pick<NormalizedExtraction, "title" | "content" | "tags">): string | null {
@@ -486,9 +488,13 @@ async function findMatchingOpenTask(
     return null;
   }
 
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const candidates = await prisma.task.findMany({
     where: {
-      status: { in: ["proposed", "active"] },
+      OR: [
+        { status: "active" },
+        { status: "proposed", createdAt: { gte: oneDayAgo } },
+      ],
     },
     include: { person: true },
     orderBy: { createdAt: "desc" },
