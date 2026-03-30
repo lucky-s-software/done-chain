@@ -23,7 +23,7 @@ node_modules/
 # ===========================
 # NEXT.JS
 # ===========================
-.next/
+.next*
 out/
 build/
 dist/

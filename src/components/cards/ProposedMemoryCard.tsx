@@ -17,14 +17,16 @@ export function ProposedMemoryCard({ card, onAction }: ProposedMemoryCardProps) 
   const [expanded, setExpanded] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const [busyDelete, setBusyDelete] = useState(false);
+  const [hidden, setHidden] = useState(card.status === "dismissed");
 
   const compact = payload.content.length > 82 ? `${payload.content.slice(0, 82).trimEnd()}...` : payload.content;
 
-  if (card.status === "dismissed") {
+  if (card.status === "dismissed" || hidden) {
     return null;
   }
 
   const hideCard = async () => {
+    setHidden(true);
     setLoading(true);
     await onAction(card.id, "dismiss");
     setLoading(false);
