@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef, KeyboardEvent, useEffect } from "react";
+import { useRef, KeyboardEvent, useEffect, useState } from "react";
 
 interface ChatInputProps {
   value: string;
   onValueChange: (value: string) => void;
-  onSend: (content: string) => Promise<void>;
+  onSend: (content: string, options: { thinkingMode: boolean }) => Promise<void>;
   disabled?: boolean;
   focusSignal?: number;
 }
@@ -13,6 +13,7 @@ interface ChatInputProps {
 export function ChatInput({ value, onValueChange, onSend, disabled, focusSignal = 0 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const MAX_VISIBLE_LINES = 4;
+  const [thinkingMode, setThinkingMode] = useState(false);
 
   const resizeTextarea = () => {
     const ta = textareaRef.current;
@@ -54,11 +55,13 @@ export function ChatInput({ value, onValueChange, onSend, disabled, focusSignal 
   const handleSend = async () => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
+    const useThinkingMode = thinkingMode;
     onValueChange("");
+    setThinkingMode(false);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-    await onSend(trimmed);
+    await onSend(trimmed, { thinkingMode: useThinkingMode });
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -83,6 +86,21 @@ export function ChatInput({ value, onValueChange, onSend, disabled, focusSignal 
         className="flex-1 bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] text-sm placeholder:text-[var(--text-muted)] px-3 py-2.5 resize-none focus:outline-none focus:border-[var(--accent)] transition-colors duration-150 font-sans leading-relaxed disabled:opacity-50"
         style={{ minHeight: "44px" }}
       />
+      <button
+        type="button"
+        onClick={() => setThinkingMode((prev) => !prev)}
+        disabled={disabled}
+        className={`shrink-0 h-10 px-2.5 border text-[10px] font-mono tracking-wide transition-all duration-150 ${
+          thinkingMode
+            ? "border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)]"
+            : "border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        } disabled:opacity-30 disabled:cursor-not-allowed`}
+        aria-pressed={thinkingMode}
+        aria-label="Toggle thinking mode for this message"
+        title="Use DeepSeek thinking mode for this message only"
+      >
+        THINK
+      </button>
       <button
         type="button"
         onClick={handleSend}

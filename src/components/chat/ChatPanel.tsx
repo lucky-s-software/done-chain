@@ -41,7 +41,7 @@ export function ChatPanel({ onDataChange, timezone }: ChatPanelProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = useCallback(async (content: string) => {
+  const handleSend = useCallback(async (content: string, options: { thinkingMode: boolean }) => {
     // Optimistic user message
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg: Message = {
@@ -59,7 +59,7 @@ export function ChatPanel({ onDataChange, timezone }: ChatPanelProps) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, thinkingMode: options.thinkingMode }),
       });
       const data = await res.json().catch(() => ({}));
       const message = data?.message as Message | undefined;

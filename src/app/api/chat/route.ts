@@ -17,7 +17,9 @@ import { createAiUsageCollector } from "@/lib/ai/usageTelemetry";
 export async function POST(req: NextRequest) {
   try {
     const aiUsage = createAiUsageCollector();
-    const { content } = await req.json();
+    const body = await req.json();
+    const content = typeof body?.content === "string" ? body.content : "";
+    const thinkingMode = Boolean(body?.thinkingMode);
 
     if (!content?.trim()) {
       return NextResponse.json({ error: "Content is required" }, { status: 400 });
@@ -65,7 +67,8 @@ export async function POST(req: NextRequest) {
         content: messageContent,
       })),
       clarificationState !== "none" ? topicKey : undefined,
-      aiUsage.push
+      aiUsage.push,
+      { thinkingMode }
     );
 
     // Update clarification state based on follow-up questions in response

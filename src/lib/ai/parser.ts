@@ -21,29 +21,41 @@ const USE_TWO_LAYER_AI = process.env.USE_TWO_LAYER_AI === "true";
 const ENABLE_REASONER_FALLBACK = process.env.ENABLE_REASONER_FALLBACK === "true";
 const REASONER_MODEL = process.env.DEEPSEEK_REASONER_MODEL || "deepseek-reasoner";
 
+interface ParseOptions {
+  thinkingMode?: boolean;
+}
+
 export async function parseUserMessage(
   userContent: string,
   attentionContext: string,
   recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[] = [],
   clarificationTopicKey?: string,
-  onUsage?: (usage: DeepSeekUsage) => void
+  onUsage?: (usage: DeepSeekUsage) => void,
+  options?: ParseOptions
 ): Promise<ParseResult> {
   try {
+    const forceReasoner = options?.thinkingMode === true;
     const primary = USE_TWO_LAYER_AI
       ? await twoLayerPipeline(
           userContent,
           attentionContext,
           recentConversationHistory,
           clarificationTopicKey,
-          onUsage
+          onUsage,
+          forceReasoner
         )
       : await singleLayerPipeline(
           userContent,
           attentionContext,
           recentConversationHistory,
           clarificationTopicKey,
-          onUsage
+          onUsage,
+          forceReasoner
         );
+
+    if (forceReasoner) {
+      return primary;
+    }
 
     return maybeApplyReasonerFallback(
       primary,
@@ -102,7 +114,8 @@ async function singleLayerPipeline(
   attentionContext: string,
   recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[],
   clarificationTopicKey?: string,
-  onUsage?: (usage: DeepSeekUsage) => void
+  onUsage?: (usage: DeepSeekUsage) => void,
+  forceReasoner = false
 ): Promise<ParseResult> {
   let extraInstruction = "";
   if (clarificationTopicKey) {
@@ -122,7 +135,8 @@ async function singleLayerPipeline(
 
   const raw = await chat(systemPrompt, conversationMessages, {
     mode: "chat",
-    stage: "parser_single",
+    model: forceReasoner ? REASONER_MODEL : undefined,
+    stage: forceReasoner ? "parser_single_reasoner" : "parser_single",
     onUsage,
   });
 
@@ -170,7 +184,8 @@ async function twoLayerPipeline(
   attentionContext: string,
   recentConversationHistory: { role: "user" | "assistant" | "system"; content: string }[],
   clarificationTopicKey?: string,
-  onUsage?: (usage: DeepSeekUsage) => void
+  onUsage?: (usage: DeepSeekUsage) => void,
+  forceReasoner = false
 ): Promise<ParseResult> {
   let extraInstruction = "";
   if (clarificationTopicKey) {
@@ -192,9 +207,10 @@ async function twoLayerPipeline(
   // Layer 1: conversational reply
   const rawReply = await chatJson(replySystemPrompt, conversationMessages, {
     mode: "chat",
+    model: forceReasoner ? REASONER_MODEL : undefined,
     temperature: 1.3,
     max_tokens: 800,
-    stage: "parser_reply",
+    stage: forceReasoner ? "parser_reply_reasoner" : "parser_reply",
     onUsage,
   });
 
@@ -214,9 +230,10 @@ async function twoLayerPipeline(
     [{ role: "user", content: extractionUserMessage }],
     {
       mode: "analysis",
+      model: forceReasoner ? REASONER_MODEL : undefined,
       temperature: 1,
       max_tokens: 1200,
-      stage: "parser_extraction",
+      stage: forceReasoner ? "parser_extraction_reasoner" : "parser_extraction",
       onUsage,
     }
   );
